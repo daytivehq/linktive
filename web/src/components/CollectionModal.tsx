@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Search, X } from 'lucide-react';
+import { useScrollLock } from '../hooks/useScrollLock';
 import type { Collection } from '../types/bookmark';
 import { COLLECTION_COLORS, COLLECTION_ICONS, CollectionIcon } from './IconPicker';
 
@@ -25,6 +26,7 @@ export function CollectionModal({
   onClose,
   onSave,
 }: CollectionModalProps) {
+  useScrollLock();
   const [name, setName] = useState(editing?.name ?? '');
   const [description, setDescription] = useState(editing?.description ?? '');
   const [parentId, setParentId] = useState<string>(editing?.parent_id ?? initialParentId ?? '');
@@ -146,9 +148,9 @@ export function CollectionModal({
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-900/40 p-4"
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CollectionIcon name={icon} color={normalizedPickerColor} className="h-5 w-5" />
@@ -159,6 +161,8 @@ export function CollectionModal({
           <button
             type="button"
             onClick={onClose}
+            title="닫기"
+            aria-label="닫기"
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />

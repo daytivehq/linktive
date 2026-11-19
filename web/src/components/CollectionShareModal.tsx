@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Copy, ExternalLink, Globe, Plus, Trash2, Users, X } from 'lucide-react';
 import { api } from '../api/client';
+import { useScrollLock } from '../hooks/useScrollLock';
 import type { Collection, CollectionShare, Workspace } from '../types/bookmark';
 import { copyToClipboard } from '../utils/clipboard';
 
@@ -19,6 +20,7 @@ export function CollectionShareModal({
   onClose,
   onCollectionUpdated,
 }: CollectionShareModalProps) {
+  useScrollLock();
   const [col, setCol] = useState(collection);
   const [shares, setShares] = useState<CollectionShare[]>([]);
   const [targetType, setTargetType] = useState<'user' | 'workspace'>('user');
@@ -105,9 +107,9 @@ export function CollectionShareModal({
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-900/40 p-4"
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
@@ -120,6 +122,8 @@ export function CollectionShareModal({
           <button
             type="button"
             onClick={onClose}
+            title="닫기"
+            aria-label="닫기"
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />
@@ -284,6 +288,8 @@ export function CollectionShareModal({
                       <button
                         type="button"
                         onClick={() => void handleRemoveShare(s.id)}
+                        title="공유 해제"
+                        aria-label="공유 해제"
                         className="text-slate-400 hover:text-rose-600"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

@@ -147,6 +147,7 @@ export function CollectionTree({
                 className={`flex h-5 w-4 shrink-0 items-center justify-center text-slate-400 ${
                   children.length === 0 ? 'invisible' : ''
                 }`}
+                title="하위 컬렉션 접기/펼치기"
                 aria-label="하위 폴더 토글"
               >
                 {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -169,6 +170,7 @@ export function CollectionTree({
                     e.stopPropagation();
                     setOpenMenuId((prev) => (prev === col.id ? null : col.id));
                   }}
+                  title="컬렉션 메뉴"
                   aria-label="컬렉션 메뉴"
                   className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
                     isMenuOpen ? 'block bg-white text-slate-700' : 'block md:hidden md:group-hover:block'

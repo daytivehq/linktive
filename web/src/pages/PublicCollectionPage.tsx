@@ -108,10 +108,12 @@ export function PublicCollectionPage() {
 
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-500">{filteredBookmarks.length}개</span>
-            <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
+            <div className="hidden rounded-lg border border-slate-200 bg-white p-0.5 md:flex">
               <button
                 type="button"
                 onClick={() => setViewMode('list')}
+                title="리스트 형식으로 보기"
+                aria-label="리스트형 보기"
                 className={`rounded-md p-1.5 ${
                   viewMode === 'list' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'
                 }`}
@@ -121,6 +123,8 @@ export function PublicCollectionPage() {
               <button
                 type="button"
                 onClick={() => setViewMode('card')}
+                title="카드 형식으로 보기"
+                aria-label="카드형 보기"
                 className={`rounded-md p-1.5 ${
                   viewMode === 'card' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'
                 }`}
@@ -136,14 +140,20 @@ export function PublicCollectionPage() {
             표시할 북마크가 없습니다.
           </div>
         ) : (
-          <div className={viewMode === 'card' ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-2.5'}>
+          <div
+            className={
+              viewMode === 'card'
+                ? 'space-y-2.5 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:grid-cols-3'
+                : 'space-y-2.5'
+            }
+          >
             {filteredBookmarks.map((bm) => (
               <a
                 key={bm.id}
                 href={bm.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 transition hover:border-sky-300 hover:shadow-xs"
+                className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 sm:p-4 transition hover:border-sky-300 hover:shadow-xs"
               >
                 <div>
                   <div className="flex items-start justify-between gap-3">

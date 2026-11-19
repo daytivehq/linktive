@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+html.scroll-locked,
+html.scroll-locked body,
+html.scroll-locked [data-scroll-pane] {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Hash, X } from 'lucide-react';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 interface RenameTagModalProps {
   tagName: string;
@@ -8,6 +9,7 @@ interface RenameTagModalProps {
 }
 
 export function RenameTagModal({ tagName, onClose, onRename }: RenameTagModalProps) {
+  useScrollLock();
   const [nextName, setNextName] = useState(tagName);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -48,9 +50,9 @@ export function RenameTagModal({ tagName, onClose, onRename }: RenameTagModalPro
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-900/40 p-4"
     >
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
@@ -62,6 +64,8 @@ export function RenameTagModal({ tagName, onClose, onRename }: RenameTagModalPro
             type="button"
             disabled={busy}
             onClick={onClose}
+            title="닫기"
+            aria-label="닫기"
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />

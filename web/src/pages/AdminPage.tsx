@@ -237,6 +237,8 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                     <button
                       type="button"
                       onClick={() => void handleDeleteInvite(inv.id)}
+                      title="초대 링크 삭제"
+                      aria-label="초대 링크 삭제"
                       className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-rose-600"
                     >
                       <Trash2 className="h-3.5 w-3.5" />

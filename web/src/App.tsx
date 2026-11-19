@@ -11,13 +11,16 @@ import {
   FolderPlus,
   Hash,
   Inbox,
+  Layers,
   LayoutGrid,
   List,
+  LogOut,
   Menu,
   MoreHorizontal,
   PanelRightOpen,
   Pencil,
   Plus,
+  Settings,
   Share2,
   Shield,
   SlidersHorizontal,
@@ -36,6 +39,7 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import { api } from './api/client';
+import { useScrollLock } from './hooks/useScrollLock';
 import { AddBookmarkModal } from './components/AddBookmarkModal';
 import { AuthScreen } from './components/AuthScreen';
 import { BookmarkDetailDrawer } from './components/BookmarkDetailDrawer';
@@ -237,6 +241,11 @@ function AuthenticatedShell({
     null,
   );
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useScrollLock(mobileSidebarOpen);
 
   const urlQuery = location.pathname === '/search' ? (searchParams.get('q') ?? '') : '';
   const [searchInput, setSearchInput] = useState(urlQuery);
@@ -267,11 +276,13 @@ function AuthenticatedShell({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // Clear selection and close mobile drawer when changing views or workspace.
+  // Clear selection and close mobile drawer/menus when changing views or workspace.
   useEffect(() => {
     setSelectedIds(new Set());
     setSelectMode(false);
     setMobileSidebarOpen(false);
+    setUserMenuOpen(false);
+    setWorkspacePickerOpen(false);
   }, [location.pathname, activeWorkspace.id]);
 
   useEffect(() => {
@@ -300,11 +311,13 @@ function AuthenticatedShell({
   }, [searchInput, urlQuery, location.pathname, navigate]);
 
   useEffect(() => {
-    if (!showFieldMenu && !openTagMenu) return;
+    if (!showFieldMenu && !openTagMenu && !userMenuOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowFieldMenu(false);
         setOpenTagMenu(null);
+        setUserMenuOpen(false);
+        setWorkspacePickerOpen(false);
       }
     };
     const onMouseDown = (e: MouseEvent) => {
@@ -314,6 +327,10 @@ function AuthenticatedShell({
       if (openTagMenu) {
         setOpenTagMenu(null);
       }
+      if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+        setWorkspacePickerOpen(false);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('mousedown', onMouseDown);
@@ -321,7 +338,7 @@ function AuthenticatedShell({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('mousedown', onMouseDown);
     };
-  }, [showFieldMenu, openTagMenu]);
+  }, [showFieldMenu, openTagMenu, userMenuOpen]);
 
   const settings = useMemo(() => parseUserSettings(user.settings_json), [user.settings_json]);
 
@@ -687,7 +704,16 @@ function AuthenticatedShell({
   const goScope = (path: string) => {
     setSearchInput('');
     setMobileSidebarOpen(false);
+    setUserMenuOpen(false);
+    setWorkspacePickerOpen(false);
     navigate(path);
+  };
+
+  const handleLogout = async () => {
+    setUserMenuOpen(false);
+    await api.logout();
+    onSetUser(null);
+    onSetWorkspaces([]);
   };
 
   const renderBookmarkFeed = () => (
@@ -776,10 +802,11 @@ function AuthenticatedShell({
             <option value="title">제목순</option>
           </select>
 
-          <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
+          <div className="hidden rounded-lg border border-slate-200 bg-white p-0.5 md:flex">
             <button
               type="button"
               onClick={() => void updateSettings({ ...settings, view_mode: 'list' })}
+              title="리스트 형식으로 보기"
               aria-label="리스트형 보기"
               className={`rounded-md p-1.5 ${
                 settings.view_mode === 'list' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'
@@ -790,6 +817,7 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => void updateSettings({ ...settings, view_mode: 'card' })}
+              title="카드 형식으로 보기"
               aria-label="카드형 보기"
               className={`rounded-md p-1.5 ${
                 settings.view_mode === 'card' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'
@@ -891,7 +919,7 @@ function AuthenticatedShell({
         <div
           className={
             settings.view_mode === 'card'
-              ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
+              ? 'space-y-2.5 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:grid-cols-3'
               : 'space-y-2.5'
           }
         >
@@ -950,7 +978,7 @@ function AuthenticatedShell({
                   ];
                   setContextMenu({ x: e.clientX, y: e.clientY, items });
                 }}
-                className={`group flex cursor-pointer flex-col justify-between rounded-xl border p-3 sm:p-4 transition ${
+                className={`group flex min-w-0 cursor-pointer flex-col justify-between overflow-hidden rounded-xl border p-3 sm:p-4 transition ${
                   isSelected
                     ? 'border-sky-500 bg-sky-50/40 ring-1 ring-sky-400'
                     : 'border-slate-200 bg-white hover:border-sky-300 hover:shadow-xs'
@@ -1070,13 +1098,14 @@ function AuthenticatedShell({
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900 md:h-screen md:overflow-hidden">
       {/* Top Bar */}
-      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:h-14 sm:flex-nowrap sm:gap-3 sm:px-4 sm:py-0">
-        <div className="flex min-w-0 items-center gap-2">
+      <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(true)}
+            title="메뉴 열기"
             aria-label="메뉴 열기"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 md:hidden"
           >
@@ -1086,31 +1115,16 @@ function AuthenticatedShell({
           <button
             type="button"
             onClick={() => goScope('/bookmarks')}
-            className="flex shrink-0 items-center gap-2"
+            className="hidden shrink-0 items-center gap-2 md:flex"
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-white">
               <BookmarkIcon className="h-4 w-4" />
             </div>
             <span className="text-base font-semibold tracking-tight">linktive</span>
           </button>
-
-          <select
-            value={activeWorkspace.id}
-            onChange={(e) => {
-              onSelectWorkspace(e.target.value);
-              goScope('/bookmarks');
-            }}
-            className="ml-0.5 max-w-[125px] truncate rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 outline-none sm:ml-1 sm:max-w-none"
-          >
-            {workspaces.map((ws) => (
-              <option key={ws.id} value={ws.id}>
-                {ws.name} ({ws.type === 'personal' ? '개인' : '공유'})
-              </option>
-            ))}
-          </select>
         </div>
 
-        <div className="order-last w-full sm:order-none sm:max-w-xl sm:flex-1">
+        <div className="min-w-0 flex-1 md:max-w-xl">
           <SearchBar
             value={searchInput}
             inputRef={searchInputRef}
@@ -1124,65 +1138,158 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => setAddModalOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700 sm:px-3 sm:text-sm"
+              title="사이트 추가"
+              aria-label="사이트 추가"
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-2.5 text-sm font-medium text-white hover:bg-sky-700 md:px-3"
             >
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">사이트 추가</span>
-              <span className="sm:hidden">추가</span>
+              <span className="hidden md:inline">사이트 추가</span>
             </button>
           )}
-          {user.is_admin && (
+          <div ref={userMenuRef} className="relative">
             <button
               type="button"
-              onClick={() => navigate('/admin')}
-              title="관리자 설정"
-              aria-label="관리자 설정"
+              onClick={() => {
+                setUserMenuOpen((prev) => !prev);
+                setWorkspacePickerOpen(false);
+              }}
+              title="계정 및 메뉴"
+              aria-label="계정 및 메뉴"
+              aria-expanded={userMenuOpen}
               className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
-                routeScope.kind === 'admin'
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-600'
+                userMenuOpen || routeScope.kind === 'settings' || routeScope.kind === 'admin'
+                  ? 'border-sky-500 bg-sky-50 text-sky-600'
                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
               }`}
             >
-              <Shield className="h-4 w-4" />
+              <UserIcon className="h-4 w-4" />
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => navigate('/settings')}
-            aria-label="프로필 및 설정"
-            className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
-              routeScope.kind === 'settings'
-                ? 'border-sky-500 bg-sky-50 text-sky-600'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <UserIcon className="h-4 w-4" />
-          </button>
+
+            {userMenuOpen && (
+              <div className="absolute right-0 top-11 z-40 w-60 rounded-xl border border-slate-200 bg-white p-1.5 text-sm shadow-xl">
+                <div className="border-b border-slate-100 px-3 py-2">
+                  <div className="truncate font-semibold text-slate-900">{user.name}</div>
+                  <div className="truncate text-xs text-slate-400">{user.email}</div>
+                </div>
+
+                <div className="py-1">
+                  {workspaces.length > 1 && (
+                    <div className="mb-1 border-b border-slate-100 pb-1">
+                      <button
+                        type="button"
+                        onClick={() => setWorkspacePickerOpen((prev) => !prev)}
+                        className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-slate-700 hover:bg-slate-100"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Layers className="h-4 w-4 shrink-0 text-slate-500" />
+                          <span className="truncate font-medium">공간 전환</span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
+                          <span className="max-w-[76px] truncate">{activeWorkspace.name}</span>
+                          {workspacePickerOpen ? (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          )}
+                        </span>
+                      </button>
+
+                      {workspacePickerOpen && (
+                        <div className="mt-1 space-y-0.5 rounded-lg bg-slate-50 p-1">
+                          {workspaces.map((ws) => {
+                            const selected = ws.id === activeWorkspace.id;
+                            return (
+                              <button
+                                key={ws.id}
+                                type="button"
+                                onClick={() => {
+                                  onSelectWorkspace(ws.id);
+                                  goScope('/bookmarks');
+                                }}
+                                className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs ${
+                                  selected
+                                    ? 'bg-sky-50 font-semibold text-sky-700'
+                                    : 'text-slate-600 hover:bg-white'
+                                }`}
+                              >
+                                <span className="truncate">
+                                  {ws.name} ({ws.type === 'personal' ? '개인' : '공유'})
+                                </span>
+                                {selected && <Check className="h-3.5 w-3.5 shrink-0 text-sky-600" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => goScope('/settings')}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-slate-700 hover:bg-slate-100"
+                  >
+                    <Settings className="h-4 w-4 text-slate-500" />
+                    <span>설정</span>
+                  </button>
+
+                  {user.is_admin && (
+                    <button
+                      type="button"
+                      onClick={() => goScope('/admin')}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-slate-700 hover:bg-slate-100"
+                    >
+                      <Shield className="h-4 w-4 text-indigo-600" />
+                      <span>관리자 설정</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-100 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void handleLogout()}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-rose-600 hover:bg-rose-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>로그아웃</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Body */}
-      <div className="flex flex-1">
+      <div className="flex min-h-0 flex-1">
         {mobileSidebarOpen && (
           <div
             onClick={() => setMobileSidebarOpen(false)}
-            className="fixed inset-0 z-30 bg-slate-900/40 md:hidden"
+            className="fixed inset-0 z-30 overscroll-none bg-slate-900/40 md:hidden"
             aria-hidden="true"
           />
         )}
         {/* Left Sidebar */}
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-72 overflow-y-auto border-r border-slate-200 bg-white p-3 transition-transform duration-200 md:static md:z-auto md:block md:w-64 md:shrink-0 md:translate-x-0 md:overflow-visible ${
+          data-scroll-pane
+          className={`fixed inset-y-0 left-0 z-40 w-72 overflow-y-auto overscroll-contain border-r border-slate-200 bg-white p-3 transition-transform duration-200 md:static md:z-auto md:block md:h-full md:w-64 md:shrink-0 md:translate-x-0 md:overflow-y-auto ${
             mobileSidebarOpen
               ? 'translate-x-0 shadow-2xl'
               : 'pointer-events-none -translate-x-full md:pointer-events-auto'
           }`}
         >
           <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2 md:hidden">
-            <span className="text-sm font-semibold text-slate-800">메뉴</span>
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-600 text-white">
+                <BookmarkIcon className="h-3.5 w-3.5" />
+              </div>
+              <span className="text-sm font-semibold text-slate-800">linktive</span>
+            </div>
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(false)}
+              title="메뉴 닫기"
               aria-label="메뉴 닫기"
               className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
             >
@@ -1443,6 +1550,7 @@ function AuthenticatedShell({
                         return next;
                       });
                     }}
+                    title="태그 목록 접기/펼치기"
                     aria-label="태그 목록 접기/펼치기"
                     className="rounded p-0.5 text-slate-400 hover:text-slate-700"
                   >
@@ -1532,6 +1640,7 @@ function AuthenticatedShell({
                                   e.stopPropagation();
                                   setOpenTagMenu((prev) => (prev === t.name ? null : t.name));
                                 }}
+                                title="태그 메뉴"
                                 aria-label="태그 메뉴"
                                 className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
                                   isMenuOpen ? 'block bg-white text-slate-700' : 'block md:hidden md:group-hover:block'
@@ -1589,7 +1698,10 @@ function AuthenticatedShell({
         </aside>
 
         {/* Right Main Area */}
-        <main className="min-w-0 flex-1 p-3 sm:p-6">
+        <main
+          data-scroll-pane
+          className="min-w-0 flex-1 p-3 sm:p-6 md:h-full md:overflow-y-auto"
+        >
           <Routes>
             <Route
               path="/tags"
@@ -1636,11 +1748,7 @@ function AuthenticatedShell({
                   onDataImported={async () => {
                     await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
                   }}
-                  onLogout={async () => {
-                    await api.logout();
-                    onSetUser(null);
-                    onSetWorkspaces([]);
-                  }}
+                  onLogout={handleLogout}
                 />
               }
             />

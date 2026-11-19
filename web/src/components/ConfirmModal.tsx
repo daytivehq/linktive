@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 interface ConfirmModalProps {
   title: string;
@@ -18,6 +19,7 @@ export function ConfirmModal({
   onClose,
   onConfirm,
 }: ConfirmModalProps) {
+  useScrollLock();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -47,9 +49,9 @@ export function ConfirmModal({
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-900/40 p-4"
     >
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
         <div className="mb-3 flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
             {danger && (
@@ -63,6 +65,8 @@ export function ConfirmModal({
             type="button"
             disabled={busy}
             onClick={onClose}
+            title="닫기"
+            aria-label="닫기"
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />

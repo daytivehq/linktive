@@ -742,6 +742,8 @@ export function SettingsPage({
                           <button
                             type="button"
                             onClick={() => void handleRenameWorkspace(ws.id)}
+                            title="저장"
+                            aria-label="저장"
                             className="rounded bg-sky-600 p-1 text-white"
                           >
                             <Check className="h-3.5 w-3.5" />
@@ -749,6 +751,8 @@ export function SettingsPage({
                           <button
                             type="button"
                             onClick={() => setEditingWsId(null)}
+                            title="취소"
+                            aria-label="취소"
                             className="rounded p-1 text-slate-400 hover:bg-white"
                           >
                             <X className="h-3.5 w-3.5" />
@@ -825,6 +829,8 @@ export function SettingsPage({
                         <button
                           type="button"
                           onClick={() => void handleRemoveMember(m.user_id)}
+                          title="멤버 제거"
+                          aria-label="멤버 제거"
                           className="text-slate-400 hover:text-rose-600"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1031,6 +1037,8 @@ export function SettingsPage({
                     <button
                       type="button"
                       onClick={() => void handleDeleteKey(k.id)}
+                      title="API 키 삭제"
+                      aria-label="API 키 삭제"
                       className="rounded p-1 text-slate-400 hover:text-rose-600"
                     >
                       <Trash2 className="h-4 w-4" />

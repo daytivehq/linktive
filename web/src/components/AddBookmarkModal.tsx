@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { ApiError } from '../api/client';
+import { useScrollLock } from '../hooks/useScrollLock';
 import type { Bookmark, Collection } from '../types/bookmark';
 
 interface AddBookmarkModalProps {
@@ -14,6 +15,7 @@ interface AddBookmarkModalProps {
 }
 
 export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBookmarkModalProps) {
+  useScrollLock();
   const [url, setUrl] = useState('');
   const [duplicateInfo, setDuplicateInfo] = useState<Bookmark | null>(null);
   const [error, setError] = useState('');
@@ -64,14 +66,16 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-900/40 p-4"
     >
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-900">사이트 추가</h2>
           <button
             type="button"
             onClick={onClose}
+            title="닫기"
+            aria-label="닫기"
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />
