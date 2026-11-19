@@ -116,48 +116,36 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           </div>
         )}
 
-        <div className="mb-4 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-sm font-medium">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('login');
-              setRequires2FA(false);
-              setTotpCode('');
-              setError('');
-            }}
-            className={`rounded-md py-1.5 ${
-              mode === 'login' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
-            }`}
-          >
-            로그인
-          </button>
-          <button
-            type="button"
-            disabled={!canRegister}
-            title={!canRegister ? '관리자에 의해 회원가입이 비활성화되었습니다.' : undefined}
-            onClick={() => {
-              if (!canRegister) return;
-              setMode('register');
-              setRequires2FA(false);
-              setError('');
-            }}
-            className={`rounded-md py-1.5 ${
-              !canRegister
-                ? 'cursor-not-allowed text-slate-400 opacity-50'
-                : mode === 'register'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-500'
-            }`}
-          >
-            회원가입
-          </button>
-        </div>
-
-        {!canRegister && (
-          <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            신규 회원가입이 비활성화되어 있습니다. 기존 계정으로 로그인하거나 관리자 초대 링크를
-            사용해 주세요.
-          </p>
+        {canRegister && (
+          <div className="mb-4 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-sm font-medium">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setRequires2FA(false);
+                setTotpCode('');
+                setError('');
+              }}
+              className={`rounded-md py-1.5 ${
+                mode === 'login' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+              }`}
+            >
+              로그인
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setRequires2FA(false);
+                setError('');
+              }}
+              className={`rounded-md py-1.5 ${
+                mode === 'register' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+              }`}
+            >
+              회원가입
+            </button>
+          </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3">

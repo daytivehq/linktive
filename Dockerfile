@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
 WORKDIR /web
 
 COPY web/package*.json ./
@@ -9,8 +9,11 @@ RUN npm ci
 COPY web ./
 RUN npm run build
 
-FROM golang:1.24-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend-builder
 WORKDIR /src
+
+ARG TARGETOS=linux
+ARG TARGETARCH
 
 COPY go.mod go.sum* ./
 RUN go mod download
@@ -20,7 +23,7 @@ COPY internal ./internal
 RUN rm -rf ./internal/webembed/dist
 COPY --from=frontend-builder /web/dist ./internal/webembed/dist
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/linktive ./cmd/server
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/linktive ./cmd/server
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata su-exec \

@@ -1,36 +1,57 @@
 # linktive
 
-가볍고 빠른 Docker 기반 북마크·사이트 관리 서비스 (React + Vite + Go + SQLite).
+가볍고 빠른 셀프호스팅 북마크 관리 서비스입니다.
 
-## 디렉터리 구조
+## 주요 기능
 
-- `cmd/server`: Go HTTP 서버 엔트리포인트
-- `internal/config`: 환경변수 기반 설정
-- `internal/domain`: 핵심 도메인 모델 (`User`, `Workspace`, `Collection`, `Bookmark`, `SavedFilter`)
-- `internal/store`: 저장소 및 검색 인터페이스 (`Store`, `SearchProvider`)
-- `internal/store/sqlite`: SQLite + FTS5(`trigram`) 구현 및 마이그레이션
-- `internal/search`: 검색 연산자 파서 및 공백 제거 정규화 유틸리티
-- `internal/httpapi`: REST API 라우터 및 SPA fallback 핸들러
-- `internal/webembed`: Go 바이너리에 내장되는 프론트엔드 정적 자산
-- `web/`: React + Vite + TypeScript + Tailwind CSS 프론트엔드
-- `extension/`: 브라우저 확장(`lk` 주소창 검색) 소스 예정 위치
+- **심플한 3단 UI**: 리스트/카드 보기 전환, 표시 항목 선택, 드래그 앤 드롭 컬렉션 정리, 다중 선택 일괄 편집
+- **강력한 한국어 검색**: 중간 글자(`래명세` → `거래명세서`), 초성(`ㄱㄹ`), 1~2글자, 띄어쓰기 무시, 연산자(`tags:`, `-tags:`, `site:`, `in:`, `date:`, `is:favorite`) 지원
+- **URL만으로 빠른 저장**: `https://` 생략 가능, 제목·설명·파비콘 자동 수집, 중복 URL 감지
+- **컬렉션 & 공유**: 계층 폴더, 아이콘(기본 + Iconify)·색상 커스텀, 로그인 없는 공개 링크(`/share/...`), 사용자/소속 공유(열람·편집 권한)
+- **데이터 이동 & 백업**: linktive JSON, 표준 HTML, Raindrop CSV, Linkwarden JSON, Karakeep JSON 가져오기/내보내기
+- **계정·보안 & REST API**: TOTP 2FA(OTP), 관리자 콘솔(회원가입 제어·초대 링크·사용자 관리), Bearer API 키
 
-## Docker 실행
+---
 
-```bash
-docker compose up --build -d
+## 빠른 시작 (Docker)
+
+### 1. `docker-compose.yml` 작성
+
+```yaml
+services:
+  linktive:
+    image: ghcr.io/daytivehq/linktive:latest
+    container_name: linktive
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./data:/data
 ```
 
-헬스체크:
+### 2. 실행 및 접속
 
 ```bash
-curl http://localhost:18080/api/v1/health
+docker compose up -d
 ```
 
-## 프론트엔드 로컬 개발
+브라우저에서 `http://localhost:18080` 으로 접속하세요.  
+**가장 먼저 가입하는 계정이 자동으로 관리자**로 등록됩니다.
 
-```bash
-cd web
-npm install
-npm run dev
-```
+> 소스에서 직접 빌드하려면 저장소를 내려받은 뒤 `docker compose up --build -d`를 실행하면 됩니다.
+
+---
+
+## 기본 사용 팁
+
+- **`/` 키**: 어디서든 검색창으로 바로 이동합니다.
+- **우클릭 메뉴**: 북마크·컬렉션·태그 위에서 마우스 오른쪽 버튼을 누르면 항목별 작업 메뉴가 열립니다.
+- **초대 및 회원가입 제어**: 상단 방패 아이콘(**관리자 설정**)에서 공개 회원가입을 끄고 1회용 초대 링크를 발급할 수 있습니다.
+- **REST API**: **설정 → API 키**에서 토큰을 발급할 수 있으며, 자세한 사용법은 [API.md](API.md) 또는 웹 내 **REST API 활용 매뉴얼**(`/api-docs`)에서 확인할 수 있습니다.
+
+---
+
+## 백업
+
+모든 데이터는 컨테이너의 `/data/linktive.db` (호스트의 `./data` 폴더)에 저장됩니다.  
+웹 UI의 **설정 → 가져오기·내보내기**에서 언제든 JSON/HTML/CSV 백업을 내려받을 수 있습니다.
