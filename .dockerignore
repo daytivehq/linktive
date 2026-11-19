@@ -1,0 +1,13 @@
+.git
+docs
+data
+.env
+.env.*
+web/node_modules
+web/dist
+extension/node_modules
+extension/dist
+.vscode
+.idea
+.DS_Store
+*.log

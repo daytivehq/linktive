@@ -1,0 +1,42 @@
+# Personal documents (never upload)
+/docs/
+
+# Binaries, test, and coverage outputs
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+*.log
+coverage.txt
+coverage.html
+
+# Data, SQLite files, and backups
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Frontend (React / Vite)
+node_modules/
+/web/dist/
+/web/.vite/
+/web/*.tsbuildinfo
+
+# Browser extension
+/extension/dist/
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,16 @@
+services:
+  linktive:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: linktive
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
+    environment:
+      LINKTIVE_ADDR: ":8080"
+      LINKTIVE_DATA_DIR: "/data"
+      LINKTIVE_DB_PATH: "/data/linktive.db"
+      LINKTIVE_ENV: "production"
+    volumes:
+      - ./data:/data
