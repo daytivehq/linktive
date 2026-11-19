@@ -94,6 +94,64 @@ func (s *Store) CreateSharedWorkspace(ctx context.Context, ownerID, name string)
 	return ws, nil
 }
 
+// UpdateWorkspace renames a workspace.
+func (s *Store) UpdateWorkspace(ctx context.Context, workspaceID, name string) (domain.Workspace, error) {
+	now := time.Now().UTC()
+	trimmed := strings.TrimSpace(name)
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE workspaces SET name = ?, updated_at = ? WHERE id = ?
+	`, trimmed, formatTime(now), workspaceID)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return domain.Workspace{}, store.ErrNotFound
+	}
+
+	var ws domain.Workspace
+	var wsType, createdAt, updatedAt string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT id, name, type, owner_id, created_at, updated_at FROM workspaces WHERE id = ?
+	`, workspaceID).Scan(&ws.ID, &ws.Name, &wsType, &ws.OwnerID, &createdAt, &updatedAt)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	ws.Type = domain.WorkspaceType(wsType)
+	ws.Role = domain.RoleOwner
+	ws.CreatedAt = parseTime(createdAt)
+	ws.UpdatedAt = parseTime(updatedAt)
+	return ws, nil
+}
+
+// DeleteWorkspace removes a shared workspace (personal workspaces cannot be deleted).
+func (s *Store) DeleteWorkspace(ctx context.Context, workspaceID string) error {
+	var wsType string
+	err := s.db.QueryRowContext(ctx, `SELECT type FROM workspaces WHERE id = ?`, workspaceID).Scan(&wsType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if domain.WorkspaceType(wsType) == domain.WorkspacePersonal {
+		return store.ErrPermissionDenied
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE workspace_id = ?`, workspaceID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workspaces WHERE id = ?`, workspaceID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ListWorkspaceMembers returns all members of a workspace.
 func (s *Store) ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]domain.WorkspaceMember, error) {
 	rows, err := s.db.QueryContext(ctx, `

@@ -60,6 +60,51 @@ func (a *apiHandler) handleCreateWorkspace(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, ws)
 }
 
+func (a *apiHandler) handleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleOwner) {
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, "workspace name is required")
+		return
+	}
+	ws, err := a.store.UpdateWorkspace(r.Context(), wsID, req.Name)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update workspace")
+		return
+	}
+	writeJSON(w, http.StatusOK, ws)
+}
+
+func (a *apiHandler) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleOwner) {
+		return
+	}
+	err := a.store.DeleteWorkspace(r.Context(), wsID)
+	if errors.Is(err, store.ErrPermissionDenied) {
+		writeError(w, http.StatusBadRequest, "personal workspace cannot be deleted")
+		return
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (a *apiHandler) handleListWorkspaceMembers(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "wsID")
 	if !a.authorizeWorkspace(w, r, wsID, domain.RoleViewer) {

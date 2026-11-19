@@ -20,6 +20,16 @@ func (a *apiHandler) handleListBookmarks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	sq := buildSearchQuery(r, wsID)
+	res, err := a.store.SearchBookmarks(r.Context(), sq)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to search bookmarks")
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func buildSearchQuery(r *http.Request, wsID string) store.SearchQuery {
 	qp := r.URL.Query()
 	sq := search.ParseQuery(wsID, qp.Get("q"))
 	sq.Sort = strings.TrimSpace(qp.Get("sort"))
@@ -47,13 +57,18 @@ func (a *apiHandler) handleListBookmarks(w http.ResponseWriter, r *http.Request)
 	if offset, err := strconv.Atoi(qp.Get("offset")); err == nil && offset >= 0 {
 		sq.Offset = offset
 	}
+	return sq
+}
 
-	res, err := a.store.SearchBookmarks(r.Context(), sq)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to search bookmarks")
-		return
-	}
-	writeJSON(w, http.StatusOK, res)
+type createBookmarkRequest struct {
+	URL            string   `json:"url"`
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	Note           string   `json:"note"`
+	CollectionID   *string  `json:"collection_id"`
+	Tags           []string `json:"tags"`
+	IsFavorite     bool     `json:"is_favorite"`
+	AllowDuplicate bool     `json:"allow_duplicate"`
 }
 
 func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request) {
@@ -61,22 +76,16 @@ func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request
 	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
 		return
 	}
-	user, _ := userFromContext(r.Context())
-
-	var req struct {
-		URL            string   `json:"url"`
-		Title          string   `json:"title"`
-		Description    string   `json:"description"`
-		Note           string   `json:"note"`
-		CollectionID   *string  `json:"collection_id"`
-		Tags           []string `json:"tags"`
-		IsFavorite     bool     `json:"is_favorite"`
-		AllowDuplicate bool     `json:"allow_duplicate"`
-	}
+	var req createBookmarkRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	a.createBookmarkInWorkspace(w, r, wsID, req)
+}
+
+func (a *apiHandler) createBookmarkInWorkspace(w http.ResponseWriter, r *http.Request, wsID string, req createBookmarkRequest) {
+	user, _ := userFromContext(r.Context())
 
 	targetURL, err := urlutil.EnsureScheme(req.URL)
 	if err != nil {
@@ -169,7 +178,10 @@ func (a *apiHandler) handleUpdateBookmark(w http.ResponseWriter, r *http.Request
 	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
 		return
 	}
+	a.updateBookmarkInWorkspace(w, r, wsID, bmID, true)
+}
 
+func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Request, wsID, bmID string, allowMove bool) {
 	var raw map[string]any
 	if err := decodeJSON(r, &raw); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -181,19 +193,21 @@ func (a *apiHandler) handleUpdateBookmark(w http.ResponseWriter, r *http.Request
 		BookmarkID:  bmID,
 	}
 
-	if targetWS, ok := raw["target_workspace_id"].(string); ok && strings.TrimSpace(targetWS) != "" {
-		targetWS = strings.TrimSpace(targetWS)
-		if !a.authorizeWorkspace(w, r, targetWS, domain.RoleEditor) {
-			return
+	if allowMove {
+		if targetWS, ok := raw["target_workspace_id"].(string); ok && strings.TrimSpace(targetWS) != "" {
+			targetWS = strings.TrimSpace(targetWS)
+			if !a.authorizeWorkspace(w, r, targetWS, domain.RoleEditor) {
+				return
+			}
+			input.TargetWorkspaceID = &targetWS
 		}
-		input.TargetWorkspaceID = &targetWS
-	}
 
-	if colVal, exists := raw["collection_id"]; exists {
-		if colVal == nil || colVal == "" {
-			input.ClearCollection = true
-		} else if s, ok := colVal.(string); ok {
-			input.CollectionID = &s
+		if colVal, exists := raw["collection_id"]; exists {
+			if colVal == nil || colVal == "" {
+				input.ClearCollection = true
+			} else if s, ok := colVal.(string); ok {
+				input.CollectionID = &s
+			}
 		}
 	}
 
@@ -294,4 +308,90 @@ func (a *apiHandler) handleGetWorkspaceStats(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (a *apiHandler) handleBulkBookmarks(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
+		return
+	}
+	var req struct {
+		BookmarkIDs  []string `json:"bookmark_ids"`
+		Action       string   `json:"action"`
+		CollectionID *string  `json:"collection_id"`
+		Tags         []string `json:"tags"`
+	}
+	if err := decodeJSON(r, &req); err != nil || len(req.BookmarkIDs) == 0 || req.Action == "" {
+		writeError(w, http.StatusBadRequest, "bookmark_ids and action are required")
+		return
+	}
+	affected, err := a.store.BulkBookmarks(r.Context(), store.BulkBookmarkInput{
+		WorkspaceID:  wsID,
+		BookmarkIDs:  req.BookmarkIDs,
+		Action:       req.Action,
+		CollectionID: req.CollectionID,
+		Tags:         req.Tags,
+	})
+	if errors.Is(err, store.ErrInvalidParent) {
+		writeError(w, http.StatusBadRequest, "invalid bulk action or collection_id")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "bulk operation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"affected": affected})
+}
+
+func (a *apiHandler) handleRenameTag(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	oldName := chi.URLParam(r, "tagName")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
+		return
+	}
+	if decoded, err := url.PathUnescape(oldName); err == nil {
+		oldName = decoded
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, "new tag name is required")
+		return
+	}
+	err := a.store.RenameTag(r.Context(), wsID, oldName, req.Name)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "tag not found")
+		return
+	}
+	if errors.Is(err, store.ErrInvalidParent) {
+		writeError(w, http.StatusBadRequest, "invalid tag name")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to rename tag")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (a *apiHandler) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	tagName := chi.URLParam(r, "tagName")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
+		return
+	}
+	if decoded, err := url.PathUnescape(tagName); err == nil {
+		tagName = decoded
+	}
+	err := a.store.DeleteTag(r.Context(), wsID, tagName)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "tag not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete tag")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

@@ -1,5 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowLeft, Copy, KeyRound, LogOut, Plus, Trash2, Users } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  KeyRound,
+  LogOut,
+  Pencil,
+  Plus,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react';
 import { api } from '../api/client';
 import type {
   APIKeyItem,
@@ -14,26 +25,36 @@ import type {
 interface SettingsPageProps {
   user: User;
   settings: UserSettings;
+  workspaces: Workspace[];
   activeWorkspace: Workspace;
   onBack: () => void;
   onUpdateSettings: (next: UserSettings) => Promise<void>;
   onWorkspaceCreated: (ws: Workspace) => void;
+  onWorkspaceUpdated: (ws: Workspace) => void;
+  onWorkspaceDeleted: (wsID: string) => void;
+  onSelectWorkspace: (wsID: string) => void;
   onLogout: () => Promise<void>;
 }
 
 export function SettingsPage({
   user,
   settings,
+  workspaces,
   activeWorkspace,
   onBack,
   onUpdateSettings,
   onWorkspaceCreated,
+  onWorkspaceUpdated,
+  onWorkspaceDeleted,
+  onSelectWorkspace,
   onLogout,
 }: SettingsPageProps) {
   const [tab, setTab] = useState<'general' | 'workspaces' | 'apikeys'>('general');
   const [clickAction, setClickAction] = useState<ClickAction>(settings.click_action);
 
   const [newWsName, setNewWsName] = useState('');
+  const [editingWsId, setEditingWsId] = useState<string | null>(null);
+  const [editingWsName, setEditingWsName] = useState('');
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<MemberRole>('editor');
@@ -78,6 +99,7 @@ export function SettingsPage({
     e.preventDefault();
     if (!newWsName.trim()) return;
     setError('');
+    setMessage('');
     try {
       const ws = await api.createWorkspace(newWsName.trim());
       onWorkspaceCreated(ws);
@@ -88,10 +110,45 @@ export function SettingsPage({
     }
   };
 
+  const handleRenameWorkspace = async (wsId: string) => {
+    const trimmed = editingWsName.trim();
+    if (!trimmed) return;
+    setError('');
+    setMessage('');
+    try {
+      const updated = await api.updateWorkspace(wsId, trimmed);
+      onWorkspaceUpdated(updated);
+      setEditingWsId(null);
+      setMessage('소속 이름을 수정했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '소속 이름 수정 실패');
+    }
+  };
+
+  const handleDeleteWorkspace = async (ws: Workspace) => {
+    if (
+      !window.confirm(
+        `"${ws.name}" 소속을 삭제할까요? 이 소속에 저장된 컬렉션과 북마크도 함께 삭제됩니다.`,
+      )
+    ) {
+      return;
+    }
+    setError('');
+    setMessage('');
+    try {
+      await api.deleteWorkspace(ws.id);
+      onWorkspaceDeleted(ws.id);
+      setMessage(`"${ws.name}" 소속을 삭제했습니다.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '소속 삭제 실패');
+    }
+  };
+
   const handleInviteMember = async (e: FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
     setError('');
+    setMessage('');
     try {
       const m = await api.addMember(activeWorkspace.id, inviteEmail.trim(), inviteRole);
       setMembers((prev) => [...prev.filter((x) => x.user_id !== m.user_id), m]);
@@ -255,9 +312,101 @@ export function SettingsPage({
               </button>
             </form>
 
+            {/* Workspace List with Rename / Delete */}
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-2.5 text-xs font-semibold text-slate-600">내 소속 목록</div>
+              <div className="space-y-1.5 text-sm">
+                {workspaces.map((ws) => {
+                  const isEditing = editingWsId === ws.id;
+                  const isActive = ws.id === activeWorkspace.id;
+                  return (
+                    <div
+                      key={ws.id}
+                      className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 ${
+                        isActive ? 'bg-sky-50 ring-1 ring-sky-200' : 'bg-slate-50'
+                      }`}
+                    >
+                      {isEditing ? (
+                        <div className="flex flex-1 items-center gap-2">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={editingWsName}
+                            onChange={(e) => setEditingWsName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void handleRenameWorkspace(ws.id);
+                              if (e.key === 'Escape') setEditingWsId(null);
+                            }}
+                            className="flex-1 rounded border border-sky-400 bg-white px-2.5 py-1 text-sm outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleRenameWorkspace(ws.id)}
+                            className="rounded bg-sky-600 p-1 text-white"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingWsId(null)}
+                            className="rounded p-1 text-slate-400 hover:bg-white"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onSelectWorkspace(ws.id)}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          >
+                            <span className="truncate font-medium text-slate-900">{ws.name}</span>
+                            <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                              {ws.type === 'personal' ? '개인' : '공유'}
+                            </span>
+                            <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                              {ws.role}
+                            </span>
+                          </button>
+
+                          {ws.role === 'owner' && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingWsId(ws.id);
+                                  setEditingWsName(ws.name);
+                                }}
+                                title="소속 이름 수정"
+                                className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              {ws.type === 'shared' && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteWorkspace(ws)}
+                                  title="소속 삭제"
+                                  className="rounded p-1 text-slate-400 hover:bg-white hover:text-rose-600"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Active Workspace Members */}
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2.5 text-xs font-semibold text-slate-600">
-                현재 소속 멤버: {activeWorkspace.name}
+                선택된 소속 멤버: {activeWorkspace.name}
               </div>
               <div className="space-y-1.5 text-sm">
                 {members.map((m) => (

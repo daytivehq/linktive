@@ -1,8 +1,12 @@
 import type {
   APIKeyItem,
   Bookmark,
+  BulkBookmarkAction,
   Collection,
+  CollectionShare,
   MemberRole,
+  PublicCollectionView,
+  SharedCollectionView,
   SortOrder,
   TagSummary,
   User,
@@ -86,6 +90,17 @@ export const api = {
     request<Workspace>('/api/v1/workspaces', {
       method: 'POST',
       body: JSON.stringify({ name }),
+    }),
+
+  updateWorkspace: (wsID: string, name: string) =>
+    request<Workspace>(`/api/v1/workspaces/${wsID}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteWorkspace: (wsID: string) =>
+    request<{ status: string }>(`/api/v1/workspaces/${wsID}`, {
+      method: 'DELETE',
     }),
 
   listMembers: (wsID: string) =>
@@ -209,9 +224,111 @@ export const api = {
       method: 'DELETE',
     }),
 
+  bulkBookmarks: (
+    wsID: string,
+    payload: {
+      bookmark_ids: string[];
+      action: BulkBookmarkAction;
+      collection_id?: string | null;
+      tags?: string[];
+    },
+  ) =>
+    request<{ affected: number }>(`/api/v1/workspaces/${wsID}/bookmarks/bulk`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   listTags: (wsID: string) =>
     request<{ items: TagSummary[] }>(`/api/v1/workspaces/${wsID}/tags`),
 
+  renameTag: (wsID: string, oldName: string, newName: string) =>
+    request<{ status: string }>(`/api/v1/workspaces/${wsID}/tags/${encodeURIComponent(oldName)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name: newName }),
+    }),
+
+  deleteTag: (wsID: string, tagName: string) =>
+    request<{ status: string }>(`/api/v1/workspaces/${wsID}/tags/${encodeURIComponent(tagName)}`, {
+      method: 'DELETE',
+    }),
+
   getStats: (wsID: string) =>
     request<WorkspaceStats>(`/api/v1/workspaces/${wsID}/stats`),
+
+  setCollectionPublic: (wsID: string, colID: string, enabled: boolean) =>
+    request<Collection>(`/api/v1/workspaces/${wsID}/collections/${colID}/public`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  getPublicCollection: (slug: string) =>
+    request<PublicCollectionView>(`/api/v1/public/collections/${encodeURIComponent(slug)}`),
+
+  listCollectionShares: (wsID: string, colID: string) =>
+    request<{ items: CollectionShare[] }>(`/api/v1/workspaces/${wsID}/collections/${colID}/shares`),
+
+  addCollectionShare: (
+    wsID: string,
+    colID: string,
+    payload: {
+      target_type: 'user' | 'workspace';
+      target_email?: string;
+      target_workspace_id?: string;
+      role: 'viewer' | 'editor';
+    },
+  ) =>
+    request<CollectionShare>(`/api/v1/workspaces/${wsID}/collections/${colID}/shares`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  removeCollectionShare: (wsID: string, colID: string, shareID: string) =>
+    request<{ status: string }>(
+      `/api/v1/workspaces/${wsID}/collections/${colID}/shares/${shareID}`,
+      { method: 'DELETE' },
+    ),
+
+  listSharedCollections: () =>
+    request<{ items: SharedCollectionView[] }>('/api/v1/shared-collections'),
+
+  listSharedCollectionBookmarks: (colID: string, params?: { q?: string; sort?: SortOrder }) => {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set('q', params.q);
+    if (params?.sort) qs.set('sort', params.sort);
+    const query = qs.toString();
+    return request<{ collection: SharedCollectionView; items: Bookmark[]; total: number }>(
+      `/api/v1/shared-collections/${colID}/bookmarks${query ? `?${query}` : ''}`,
+    );
+  },
+
+  createSharedCollectionBookmark: (
+    colID: string,
+    payload: { url: string; allow_duplicate?: boolean },
+  ) =>
+    request<Bookmark>(`/api/v1/shared-collections/${colID}/bookmarks`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateSharedCollectionBookmark: (
+    colID: string,
+    bmID: string,
+    payload: {
+      url?: string;
+      title?: string;
+      description?: string;
+      note?: string;
+      tags?: string[];
+      is_favorite?: boolean;
+    },
+  ) =>
+    request<Bookmark>(`/api/v1/shared-collections/${colID}/bookmarks/${bmID}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteSharedCollectionBookmark: (colID: string, bmID: string) =>
+    request<{ status: string }>(`/api/v1/shared-collections/${colID}/bookmarks/${bmID}`, {
+      method: 'DELETE',
+    }),
 };

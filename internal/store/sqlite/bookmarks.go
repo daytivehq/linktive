@@ -238,6 +238,262 @@ func (s *Store) DeleteBookmark(ctx context.Context, workspaceID, bookmarkID stri
 	return tx.Commit()
 }
 
+// BulkBookmarks executes batch favorite/move/delete/tag updates on multiple bookmarks in a single transaction.
+func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput) (int, error) {
+	if len(input.BookmarkIDs) == 0 {
+		return 0, nil
+	}
+	if input.Action == "move" && input.CollectionID != nil && *input.CollectionID != "" {
+		if err := s.ensureCollectionExists(ctx, input.WorkspaceID, *input.CollectionID); err != nil {
+			return 0, store.ErrInvalidParent
+		}
+	}
+
+	nowStr := formatTime(time.Now().UTC())
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	affected := 0
+	normalizedInputTags := normalizeTags(input.Tags)
+
+	for _, bmID := range input.BookmarkIDs {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM bookmarks WHERE id = ? AND workspace_id = ?`, bmID, input.WorkspaceID).Scan(&exists); err != nil {
+			return 0, err
+		}
+		if exists == 0 {
+			continue
+		}
+
+		switch input.Action {
+		case "favorite", "unfavorite":
+			fav := 0
+			if input.Action == "favorite" {
+				fav = 1
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE bookmarks SET is_favorite = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`, fav, nowStr, bmID, input.WorkspaceID); err != nil {
+				return 0, err
+			}
+		case "move":
+			col := normalizeOptionalID(input.CollectionID)
+			if _, err := tx.ExecContext(ctx, `UPDATE bookmarks SET collection_id = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`, nullableString(col), nowStr, bmID, input.WorkspaceID); err != nil {
+				return 0, err
+			}
+		case "delete":
+			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks WHERE id = ? AND workspace_id = ?`, bmID, input.WorkspaceID); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE bookmark_id = ?`, bmID); err != nil {
+				return 0, err
+			}
+		case "tags_set", "tags_add", "tags_remove":
+			curTags, err := loadTagsForBookmarkTx(ctx, tx, bmID)
+			if err != nil {
+				return 0, err
+			}
+			nextTags := mergeTagChange(curTags, normalizedInputTags, input.Action)
+			if err := syncBookmarkTagsTx(ctx, tx, input.WorkspaceID, bmID, nextTags, nowStr); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE bookmarks SET updated_at = ? WHERE id = ?`, nowStr, bmID); err != nil {
+				return 0, err
+			}
+			if err := reindexBookmarkTx(ctx, tx, bmID); err != nil {
+				return 0, err
+			}
+		default:
+			return 0, store.ErrInvalidParent
+		}
+		affected++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+// RenameTag renames (or merges into an existing target tag) and updates affected search indexes.
+func (s *Store) RenameTag(ctx context.Context, workspaceID, oldName, newName string) error {
+	oldClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(oldName, "#")))
+	newClean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(newName, "#")))
+	if oldClean == "" || newClean == "" {
+		return store.ErrInvalidParent
+	}
+	if oldClean == newClean {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var oldID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM tags WHERE workspace_id = ? AND name = ?`, workspaceID, oldClean).Scan(&oldID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	affectedIDs, err := bookmarkIDsForTagTx(ctx, tx, oldID)
+	if err != nil {
+		return err
+	}
+
+	var targetID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM tags WHERE workspace_id = ? AND name = ?`, workspaceID, newClean).Scan(&targetID)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err := tx.ExecContext(ctx, `UPDATE tags SET name = ? WHERE id = ?`, newClean, oldID); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else {
+		// Merge into existing tag.
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) SELECT bookmark_id, ? FROM bookmark_tags WHERE tag_id = ?`, targetID, oldID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM tags WHERE id = ?`, oldID); err != nil {
+			return err
+		}
+	}
+
+	for _, bmID := range affectedIDs {
+		if err := reindexBookmarkTx(ctx, tx, bmID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteTag removes a tag from the workspace without deleting bookmarks and updates search indexes.
+func (s *Store) DeleteTag(ctx context.Context, workspaceID, tagName string) error {
+	clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(tagName, "#")))
+	if clean == "" {
+		return store.ErrNotFound
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var tagID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM tags WHERE workspace_id = ? AND name = ?`, workspaceID, clean).Scan(&tagID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	affectedIDs, err := bookmarkIDsForTagTx(ctx, tx, tagID)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tags WHERE id = ?`, tagID); err != nil {
+		return err
+	}
+	for _, bmID := range affectedIDs {
+		if err := reindexBookmarkTx(ctx, tx, bmID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func bookmarkIDsForTagTx(ctx context.Context, tx *sql.Tx, tagID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT bookmark_id FROM bookmark_tags WHERE tag_id = ?`, tagID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func loadTagsForBookmarkTx(ctx context.Context, tx *sql.Tx, bookmarkID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT t.name FROM bookmark_tags bt
+		JOIN tags t ON t.id = bt.tag_id
+		WHERE bt.bookmark_id = ?
+		ORDER BY t.name COLLATE NOCASE ASC
+	`, bookmarkID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var tags []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tags = append(tags, name)
+	}
+	return tags, rows.Err()
+}
+
+func reindexBookmarkTx(ctx context.Context, tx *sql.Tx, bookmarkID string) error {
+	var bm domain.Bookmark
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, workspace_id, url, domain, title, description, note
+		FROM bookmarks WHERE id = ?
+	`, bookmarkID).Scan(&bm.ID, &bm.WorkspaceID, &bm.URL, &bm.Domain, &bm.Title, &bm.Description, &bm.Note)
+	if err != nil {
+		return err
+	}
+	tags, err := loadTagsForBookmarkTx(ctx, tx, bookmarkID)
+	if err != nil {
+		return err
+	}
+	tagsText := strings.Join(tags, " ")
+	compactText := search.CompactText(bm.Title, tagsText, bm.Note, bm.Description, bm.Domain, bm.URL)
+	chosungText := search.ExtractChosung(bm.Title, tagsText, bm.Note, bm.Description)
+	if _, err := tx.ExecContext(ctx, `UPDATE bookmarks SET compact_text = ?, chosung_text = ? WHERE id = ?`, compactText, chosungText, bookmarkID); err != nil {
+		return err
+	}
+	return upsertBookmarkFTSTx(ctx, tx, bm, tagsText, compactText)
+}
+
+func mergeTagChange(curTags, inputTags []string, action string) []string {
+	switch action {
+	case "tags_set":
+		return inputTags
+	case "tags_add":
+		return normalizeTags(append(append([]string{}, curTags...), inputTags...))
+	case "tags_remove":
+		removeSet := make(map[string]struct{}, len(inputTags))
+		for _, t := range inputTags {
+			removeSet[t] = struct{}{}
+		}
+		out := make([]string, 0, len(curTags))
+		for _, t := range curTags {
+			if _, rm := removeSet[t]; !rm {
+				out = append(out, t)
+			}
+		}
+		return out
+	default:
+		return curTags
+	}
+}
+
 // ListTags returns tags currently in use within a workspace sorted by name.
 func (s *Store) ListTags(ctx context.Context, workspaceID string) ([]domain.TagSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `

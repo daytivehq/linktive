@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, FolderPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderPlus, MoreHorizontal, Pencil, Share2, Trash2 } from 'lucide-react';
 import type { Collection } from '../types/bookmark';
 import { CollectionIcon } from './IconPicker';
 
@@ -13,6 +13,7 @@ interface CollectionTreeProps {
   onSelect: (id: string) => void;
   onCreateChild: (parentId: string | null) => void;
   onEdit: (col: Collection) => void;
+  onShare: (col: Collection) => void;
   onDelete: (col: Collection) => void;
   onMoveCollection: (colId: string, newParentId: string | null) => void;
   onDropBookmark: (bookmarkId: string, targetCollectionId: string) => void;
@@ -25,6 +26,7 @@ export function CollectionTree({
   onSelect,
   onCreateChild,
   onEdit,
+  onShare,
   onDelete,
   onMoveCollection,
   onDropBookmark,
@@ -198,6 +200,17 @@ export function CollectionTree({
               >
                 <Pencil className="h-3.5 w-3.5 text-slate-500" />
                 <span>수정</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenMenuId(null);
+                  onShare(col);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
+              >
+                <Share2 className="h-3.5 w-3.5 text-slate-500" />
+                <span>공유 및 공개</span>
               </button>
               <div className="my-1 border-t border-slate-100" />
               <button

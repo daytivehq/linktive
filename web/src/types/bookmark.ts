@@ -71,10 +71,53 @@ export interface Collection {
   description: string;
   icon: string;
   color: string;
+  is_public: boolean;
+  public_slug?: string | null;
   bookmark_count: number;
   created_at: string;
   updated_at: string;
 }
+
+export interface CollectionShare {
+  id: string;
+  collection_id: string;
+  target_type: 'user' | 'workspace';
+  target_id: string;
+  target_label: string;
+  role: 'viewer' | 'editor';
+  created_at: string;
+}
+
+export interface SharedCollectionView extends Collection {
+  role: MemberRole;
+  owner_name: string;
+  source_workspace_name: string;
+}
+
+export interface PublicBookmark {
+  id: string;
+  url: string;
+  domain: string;
+  title: string;
+  description: string;
+  favicon_url: string;
+  tags: string[];
+  created_at: string;
+}
+
+export interface PublicCollectionView {
+  collection: Collection;
+  bookmarks: PublicBookmark[];
+}
+
+export type BulkBookmarkAction =
+  | 'favorite'
+  | 'unfavorite'
+  | 'move'
+  | 'delete'
+  | 'tags_add'
+  | 'tags_set'
+  | 'tags_remove';
 
 export interface Bookmark {
   id: string;

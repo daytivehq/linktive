@@ -30,6 +30,7 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 		api.Post("/auth/register", h.handleRegister)
 		api.Post("/auth/login", h.handleLogin)
 		api.Post("/auth/logout", h.handleLogout)
+		api.Get("/public/collections/{slug}", h.handleGetPublicCollection)
 
 		api.Group(func(authed chi.Router) {
 			authed.Use(h.requireAuth)
@@ -44,7 +45,15 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 			authed.Get("/workspaces", h.handleListWorkspaces)
 			authed.Post("/workspaces", h.handleCreateWorkspace)
 
+			authed.Get("/shared-collections", h.handleListSharedCollections)
+			authed.Get("/shared-collections/{colID}/bookmarks", h.handleListSharedCollectionBookmarks)
+			authed.Post("/shared-collections/{colID}/bookmarks", h.handleCreateSharedCollectionBookmark)
+			authed.Patch("/shared-collections/{colID}/bookmarks/{bmID}", h.handleUpdateSharedCollectionBookmark)
+			authed.Delete("/shared-collections/{colID}/bookmarks/{bmID}", h.handleDeleteSharedCollectionBookmark)
+
 			authed.Route("/workspaces/{wsID}", func(ws chi.Router) {
+				ws.Patch("/", h.handleUpdateWorkspace)
+				ws.Delete("/", h.handleDeleteWorkspace)
 				ws.Get("/members", h.handleListWorkspaceMembers)
 				ws.Post("/members", h.handleAddWorkspaceMember)
 				ws.Delete("/members/{userID}", h.handleRemoveWorkspaceMember)
@@ -53,14 +62,21 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 				ws.Post("/collections", h.handleCreateCollection)
 				ws.Patch("/collections/{colID}", h.handleUpdateCollection)
 				ws.Delete("/collections/{colID}", h.handleDeleteCollection)
+				ws.Post("/collections/{colID}/public", h.handleSetCollectionPublic)
+				ws.Get("/collections/{colID}/shares", h.handleListCollectionShares)
+				ws.Post("/collections/{colID}/shares", h.handleAddCollectionShare)
+				ws.Delete("/collections/{colID}/shares/{shareID}", h.handleRemoveCollectionShare)
 
 				ws.Get("/bookmarks", h.handleListBookmarks)
 				ws.Post("/bookmarks", h.handleCreateBookmark)
+				ws.Post("/bookmarks/bulk", h.handleBulkBookmarks)
 				ws.Get("/bookmarks/{bmID}", h.handleGetBookmark)
 				ws.Patch("/bookmarks/{bmID}", h.handleUpdateBookmark)
 				ws.Delete("/bookmarks/{bmID}", h.handleDeleteBookmark)
 
 				ws.Get("/tags", h.handleListTags)
+				ws.Patch("/tags/{tagName}", h.handleRenameTag)
+				ws.Delete("/tags/{tagName}", h.handleDeleteTag)
 				ws.Get("/stats", h.handleGetWorkspaceStats)
 			})
 		})

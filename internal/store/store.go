@@ -93,6 +93,26 @@ type UpdateBookmarkInput struct {
 	ReplaceTags       bool
 }
 
+// BulkBookmarkInput defines a batch operation on bookmarks within a workspace.
+type BulkBookmarkInput struct {
+	WorkspaceID  string
+	BookmarkIDs  []string
+	Action       string // favorite, unfavorite, move, delete, tags_add, tags_set, tags_remove
+	CollectionID *string
+	Tags         []string
+}
+
+// CreateCollectionShareInput defines sharing a collection with a user or workspace.
+type CreateCollectionShareInput struct {
+	WorkspaceID       string
+	CollectionID      string
+	TargetType        string // user, workspace
+	TargetEmail       string
+	TargetWorkspaceID string
+	Role              domain.MemberRole
+	CreatedBy         string
+}
+
 // CreateCollectionInput contains fields to create a collection.
 type CreateCollectionInput struct {
 	WorkspaceID string
@@ -137,22 +157,34 @@ type Store interface {
 	ListWorkspacesForUser(ctx context.Context, userID string) ([]domain.Workspace, error)
 	GetWorkspaceRole(ctx context.Context, workspaceID, userID string) (domain.MemberRole, error)
 	CreateSharedWorkspace(ctx context.Context, ownerID, name string) (domain.Workspace, error)
+	UpdateWorkspace(ctx context.Context, workspaceID, name string) (domain.Workspace, error)
+	DeleteWorkspace(ctx context.Context, workspaceID string) error
 	ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]domain.WorkspaceMember, error)
 	AddWorkspaceMemberByEmail(ctx context.Context, workspaceID, email string, role domain.MemberRole) (domain.WorkspaceMember, error)
 	RemoveWorkspaceMember(ctx context.Context, workspaceID, userID string) error
 
-	// Collections
+	// Collections & Sharing
 	ListCollections(ctx context.Context, workspaceID string) ([]domain.Collection, error)
 	CreateCollection(ctx context.Context, input CreateCollectionInput) (domain.Collection, error)
 	UpdateCollection(ctx context.Context, input UpdateCollectionInput) (domain.Collection, error)
 	DeleteCollection(ctx context.Context, workspaceID, collectionID string) error
+	SetCollectionPublic(ctx context.Context, workspaceID, collectionID string, enabled bool) (domain.Collection, error)
+	GetPublicCollectionBySlug(ctx context.Context, slug string) (domain.PublicCollectionView, error)
+	ListCollectionShares(ctx context.Context, workspaceID, collectionID string) ([]domain.CollectionShare, error)
+	UpsertCollectionShare(ctx context.Context, input CreateCollectionShareInput) (domain.CollectionShare, error)
+	DeleteCollectionShare(ctx context.Context, workspaceID, collectionID, shareID string) error
+	ListSharedCollectionsForUser(ctx context.Context, userID string) ([]domain.SharedCollectionView, error)
+	GetSharedCollectionAccess(ctx context.Context, userID, collectionID string) (domain.SharedCollectionView, error)
 
 	// Bookmarks & Tags
 	CreateBookmark(ctx context.Context, input CreateBookmarkInput) (domain.Bookmark, error)
 	GetBookmark(ctx context.Context, workspaceID, bookmarkID string) (domain.Bookmark, error)
 	UpdateBookmark(ctx context.Context, input UpdateBookmarkInput) (domain.Bookmark, error)
 	DeleteBookmark(ctx context.Context, workspaceID, bookmarkID string) error
+	BulkBookmarks(ctx context.Context, input BulkBookmarkInput) (int, error)
 	ListTags(ctx context.Context, workspaceID string) ([]domain.TagSummary, error)
+	RenameTag(ctx context.Context, workspaceID, oldName, newName string) error
+	DeleteTag(ctx context.Context, workspaceID, tagName string) error
 	GetWorkspaceStats(ctx context.Context, workspaceID string) (domain.WorkspaceStats, error)
 	SearchBookmarks(ctx context.Context, query SearchQuery) (SearchResult, error)
 }

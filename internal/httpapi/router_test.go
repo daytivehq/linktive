@@ -96,6 +96,139 @@ func TestAuthBookmarkAndKoreanSearchFlow(t *testing.T) {
 	}
 }
 
+func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	handler := NewRouter(st, fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}})
+
+	// Register Owner + Recipient.
+	reg1 := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "owner@linktive.local", "name": "소유자", "password": "password123",
+	}, nil)
+	cookies1 := reg1.Result().Cookies()
+	var r1 struct {
+		Workspaces []struct {
+			ID string `json:"id"`
+		} `json:"workspaces"`
+	}
+	_ = json.Unmarshal(reg1.Body.Bytes(), &r1)
+	ws1 := r1.Workspaces[0].ID
+
+	reg2 := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "guest@linktive.local", "name": "게스트", "password": "password123",
+	}, nil)
+	cookies2 := reg2.Result().Cookies()
+
+	// Create shared workspace -> rename -> delete; personal cannot be deleted.
+	rec := doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+ws1, nil, cookies1)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 deleting personal workspace, got %d", rec.Code)
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces", map[string]string{"name": "임시팀"}, cookies1)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating shared workspace, got %d", rec.Code)
+	}
+	var sharedWS struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &sharedWS)
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/workspaces/"+sharedWS.ID, map[string]string{"name": "가족팀"}, cookies1)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "가족팀") {
+		t.Fatalf("expected workspace rename, got %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+sharedWS.ID, nil, cookies1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 deleting shared workspace, got %d", rec.Code)
+	}
+
+	// Create collection & bookmarks.
+	colRec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/collections", map[string]string{
+		"name": "공유폴더", "description": "공개 테스트", "icon": "house", "color": "#ff5500",
+	}, cookies1)
+	var col struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(colRec.Body.Bytes(), &col)
+
+	bmRec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/bookmarks", map[string]any{
+		"url": "https://example.com/1", "title": "북마크1", "description": "설명", "tags": []string{"옛태그"},
+	}, cookies1)
+	var bm struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(bmRec.Body.Bytes(), &bm)
+
+	// Bulk move + favorite + tags_add.
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/bookmarks/bulk", map[string]any{
+		"bookmark_ids": []string{bm.ID}, "action": "move", "collection_id": col.ID,
+	}, cookies1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bulk move failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/bookmarks/bulk", map[string]any{
+		"bookmark_ids": []string{bm.ID}, "action": "tags_add", "tags": []string{"새태그"},
+	}, cookies1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bulk tags_add failed: %d", rec.Code)
+	}
+
+	// Rename tag & delete tag.
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/workspaces/"+ws1+"/tags/%EC%98%9B%ED%83%9C%EA%B7%B8", map[string]string{"name": "변경태그"}, cookies1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rename tag failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+ws1+"/tags/%EC%83%88%ED%83%9C%EA%B7%B8", nil, cookies1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete tag failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Public collection link without login.
+	pubRec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/collections/"+col.ID+"/public", map[string]bool{"enabled": true}, cookies1)
+	if pubRec.Code != http.StatusOK {
+		t.Fatalf("set public failed: %d %s", pubRec.Code, pubRec.Body.String())
+	}
+	var pubCol struct {
+		PublicSlug string `json:"public_slug"`
+	}
+	_ = json.Unmarshal(pubRec.Body.Bytes(), &pubCol)
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/public/collections/"+pubCol.PublicSlug, nil, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "북마크1") {
+		t.Fatalf("public collection fetch failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Share collection with guest as viewer -> cannot create bookmark (403); upgrade to editor -> can create.
+	shareRec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/collections/"+col.ID+"/shares", map[string]string{
+		"target_type": "user", "target_email": "guest@linktive.local", "role": "viewer",
+	}, cookies1)
+	if shareRec.Code != http.StatusCreated {
+		t.Fatalf("share collection failed: %d %s", shareRec.Code, shareRec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/shared-collections/"+col.ID+"/bookmarks", nil, cookies2)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "북마크1") {
+		t.Fatalf("guest list shared bookmarks failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/shared-collections/"+col.ID+"/bookmarks", map[string]string{
+		"url": "https://example.com/2", "title": "게스트작성", "description": "설명",
+	}, cookies2)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer writing to shared collection, got %d", rec.Code)
+	}
+	_ = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/collections/"+col.ID+"/shares", map[string]string{
+		"target_type": "user", "target_email": "guest@linktive.local", "role": "editor",
+	}, cookies1)
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/shared-collections/"+col.ID+"/bookmarks", map[string]string{
+		"url": "https://example.com/2", "title": "게스트작성", "description": "설명",
+	}, cookies2)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for editor writing to shared collection, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func doJSON(t *testing.T, handler http.Handler, method, target string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer

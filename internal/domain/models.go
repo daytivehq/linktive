@@ -102,9 +102,48 @@ type Collection struct {
 	Description   string    `json:"description"`
 	Icon          string    `json:"icon"`
 	Color         string    `json:"color"`
+	IsPublic      bool      `json:"is_public"`
+	PublicSlug    *string   `json:"public_slug,omitempty"`
 	BookmarkCount int       `json:"bookmark_count"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// CollectionShare represents sharing a collection with a user or another workspace.
+type CollectionShare struct {
+	ID           string     `json:"id"`
+	CollectionID string     `json:"collection_id"`
+	TargetType   string     `json:"target_type"` // user, workspace
+	TargetID     string     `json:"target_id"`
+	TargetLabel  string     `json:"target_label"`
+	Role         MemberRole `json:"role"` // viewer, editor
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+// SharedCollectionView represents a collection shared with the current user.
+type SharedCollectionView struct {
+	Collection
+	Role                MemberRole `json:"role"`
+	OwnerName           string     `json:"owner_name"`
+	SourceWorkspaceName string     `json:"source_workspace_name"`
+}
+
+// PublicBookmark is a privacy-filtered bookmark projection for public collection links.
+type PublicBookmark struct {
+	ID         string    `json:"id"`
+	URL        string    `json:"url"`
+	Domain     string    `json:"domain"`
+	Title      string    `json:"title"`
+	Description string   `json:"description"`
+	FaviconURL string    `json:"favicon_url"`
+	Tags       []string  `json:"tags"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// PublicCollectionView is returned for unauthenticated public collection links.
+type PublicCollectionView struct {
+	Collection Collection       `json:"collection"`
+	Bookmarks  []PublicBookmark `json:"bookmarks"`
 }
 
 // Bookmark represents a saved URL with extracted metadata, user note, and tags.
