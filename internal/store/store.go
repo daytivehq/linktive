@@ -203,6 +203,7 @@ type Store interface {
 	BulkBookmarks(ctx context.Context, input BulkBookmarkInput) (int, error)
 	UpdateBookmarkLinkStatus(ctx context.Context, workspaceID, bookmarkID string, status domain.LinkStatus, checkedAt time.Time) error
 	ListWorkspaceBookmarksForCheck(ctx context.Context, workspaceID string, onlyUnchecked bool) ([]domain.Bookmark, error)
+	ListDuplicateBookmarks(ctx context.Context, workspaceID string) (domain.DuplicateLinksResult, error)
 	ListTags(ctx context.Context, workspaceID string) ([]domain.TagSummary, error)
 	RenameTag(ctx context.Context, workspaceID, oldName, newName string) error
 	DeleteTag(ctx context.Context, workspaceID, tagName string) error

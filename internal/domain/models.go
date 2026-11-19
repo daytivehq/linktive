@@ -202,6 +202,22 @@ type WorkspaceStats struct {
 	FavoriteCount    int `json:"favorite_count"`
 	UncollectedCount int `json:"uncollected_count"`
 	BrokenCount      int `json:"broken_count"`
+	BlockedCount     int `json:"blocked_count"`
+	DuplicateCount   int `json:"duplicate_count"`
+}
+
+// DuplicateBookmarkGroup represents multiple bookmarks sharing the same normalized URL.
+type DuplicateBookmarkGroup struct {
+	NormalizedURL string     `json:"normalized_url"`
+	Count         int        `json:"count"`
+	Bookmarks     []Bookmark `json:"bookmarks"`
+}
+
+// DuplicateLinksResult summarizes duplicate URLs detected within a workspace.
+type DuplicateLinksResult struct {
+	Groups      []DuplicateBookmarkGroup `json:"groups"`
+	TotalGroups int                      `json:"total_groups"`
+	TotalExcess int                      `json:"total_excess"`
 }
 
 // SavedFilter stores a reusable search/filter expression in the sidebar.

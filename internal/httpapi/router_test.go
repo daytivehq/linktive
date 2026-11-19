@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -508,6 +509,40 @@ func TestSavedFiltersLinkCheckAndAdminBackups(t *testing.T) {
 	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/stats", nil, cookies)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"broken_count":1`) {
 		t.Fatalf("expected broken_count=1 in stats: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Mark broken link as OK via link-status endpoint, and verify duplicate URL detection + comma query parsing.
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/bookmarks", map[string]any{
+		"url": srv.URL + "/ok", "title": "중복 저장", "allow_duplicate": true, "is_favorite": true, "tags": []string{"커뮤니티"},
+	}, cookies)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create duplicate bookmark failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var dupBm struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &dupBm)
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks?q="+url.QueryEscape("tags:커뮤니티, is:favorite"), nil, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "중복 저장") || strings.Contains(rec.Body.String(), "깨진 링크") {
+		t.Fatalf("comma query tags:커뮤니티, is:favorite failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/links/duplicates", nil, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"total_groups":1`) {
+		t.Fatalf("list duplicate links failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/bookmarks/"+dupBm.ID+"/link-status", map[string]string{
+		"link_status": "blocked",
+	}, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"link_status":"blocked"`) {
+		t.Fatalf("set bookmark link status failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/stats", nil, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"blocked_count":1`) || !strings.Contains(rec.Body.String(), `"duplicate_count":1`) {
+		t.Fatalf("expected blocked_count=1 and duplicate_count=1 in stats: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Admin backups run/list/delete.

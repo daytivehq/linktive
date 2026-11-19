@@ -10,6 +10,7 @@ interface CollectionTreeProps {
   collections: Collection[];
   activeCollectionId?: string;
   canEdit: boolean;
+  expandAllSignal?: { expanded: boolean; seq: number };
   onSelect: (id: string) => void;
   onCreateChild: (parentId: string | null) => void;
   onEdit: (col: Collection) => void;
@@ -24,6 +25,7 @@ export function CollectionTree({
   collections,
   activeCollectionId,
   canEdit,
+  expandAllSignal,
   onSelect,
   onCreateChild,
   onEdit,
@@ -37,6 +39,16 @@ export function CollectionTree({
   const [draggingColId, setDraggingColId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!expandAllSignal || expandAllSignal.seq === 0) return;
+    const next: Record<string, boolean> = {};
+    for (const col of collections) {
+      next[col.id] = expandAllSignal.expanded;
+    }
+    setExpanded(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandAllSignal?.seq]);
 
   useEffect(() => {
     if (!openMenuId) return;

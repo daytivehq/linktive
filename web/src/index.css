@@ -2,7 +2,7 @@
 
 html.scroll-locked,
 html.scroll-locked body,
-html.scroll-locked [data-scroll-pane] {
+html.scroll-locked [data-lock-on-modal] {
   overflow: hidden !important;
   overscroll-behavior: none;
 }

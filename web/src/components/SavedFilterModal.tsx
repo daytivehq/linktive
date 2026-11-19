@@ -1,15 +1,28 @@
 import { useState, type FormEvent } from 'react';
-import { Filter, X } from 'lucide-react';
+import { ExternalLink, Filter, X } from 'lucide-react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
 import type { SavedFilter } from '../types/bookmark';
 
 const FILTER_COLORS = ['#0284c7', '#4f46e5', '#059669', '#d97706', '#e11d48', '#475569'];
 
+const OPERATOR_HINTS = [
+  { token: 'tags:', desc: '태그 포함 (예: tags:커뮤니티)' },
+  { token: '-tags:', desc: '태그 제외 (예: -tags:임시)' },
+  { token: 'site:', desc: '도메인 (예: site:github.com)' },
+  { token: 'in:', desc: '컬렉션 (예: in:개발)' },
+  { token: 'date:', desc: '특정 날짜 (YYYY-MM-DD)' },
+  { token: 'after:', desc: '이후 날짜' },
+  { token: 'before:', desc: '이전 날짜' },
+  { token: 'is:favorite ', desc: '즐겨찾기만' },
+  { token: 'is:broken ', desc: '손상 링크만' },
+];
+
 interface SavedFilterModalProps {
   editing: SavedFilter | null;
   initialQuery?: string;
   onClose: () => void;
+  onOpenAdvancedSearch: () => void;
   onSave: (payload: {
     id?: string;
     name: string;
@@ -23,6 +36,7 @@ export function SavedFilterModal({
   editing,
   initialQuery = '',
   onClose,
+  onOpenAdvancedSearch,
   onSave,
 }: SavedFilterModalProps) {
   useScrollLock();
@@ -33,6 +47,13 @@ export function SavedFilterModal({
   const [color, setColor] = useState(editing?.color ?? '#0284c7');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  const insertToken = (token: string) => {
+    setQuery((prev) => {
+      const trimmed = prev.trimEnd();
+      return trimmed ? `${trimmed} ${token}` : token;
+    });
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -75,7 +96,7 @@ export function SavedFilterModal({
               <Filter className="h-4 w-4" />
             </div>
             <h2 className="text-base font-semibold text-slate-900">
-              {editing ? '저장된 필터 수정' : '새 저장된 필터'}
+              {editing ? '필터 수정' : '새 필터'}
             </h2>
           </div>
           <button
@@ -99,7 +120,7 @@ export function SavedFilterModal({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="예: 중요 세금 문서"
+              placeholder="예: 커뮤니티 즐겨찾기"
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
             />
           </div>
@@ -111,17 +132,43 @@ export function SavedFilterModal({
               required
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="예: tags:세금 is:favorite"
+              placeholder="예: tags:커뮤니티 is:favorite"
               className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs outline-none focus:border-sky-500"
             />
-            <p className="mt-1 text-[11px] text-slate-400">
-              연산자 조합 가능: <code className="text-slate-600">tags:</code>,{' '}
-              <code className="text-slate-600">-tags:</code>,{' '}
-              <code className="text-slate-600">site:</code>,{' '}
-              <code className="text-slate-600">in:</code>,{' '}
-              <code className="text-slate-600">is:favorite</code>,{' '}
-              <code className="text-slate-600">is:broken</code>
-            </p>
+            <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-600">
+                  사용 가능한 연산자 (클릭해 추가)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenAdvancedSearch();
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 hover:underline"
+                >
+                  <span>자세한 검색 규칙</span>
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {OPERATOR_HINTS.map((item) => (
+                  <button
+                    key={item.token}
+                    type="button"
+                    title={item.desc}
+                    onClick={() => insertToken(item.token)}
+                    className="rounded-md border border-slate-200 bg-white px-2 py-0.5 font-mono text-[11px] text-slate-700 hover:border-sky-300 hover:text-sky-700"
+                  >
+                    {item.token.trim()}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                공백 또는 쉼표로 조건을 여러 개 조합하면 모두 만족하는 북마크만 표시됩니다.
+              </p>
+            </div>
           </div>
 
           <div>

@@ -48,6 +48,7 @@ const OPERATORS = [
   { op: 'before:2026-11-30', desc: '해당 날짜 이전에 추가된 북마크' },
   { op: 'is:favorite', desc: '즐겨찾기에 등록된 북마크만 조회' },
   { op: 'is:broken', desc: '손상된 링크로 표시된 북마크만 조회' },
+  { op: 'is:blocked', desc: '접근 제한(차단) 상태로 표시된 북마크만 조회' },
 ];
 
 export function AdvancedSearchPage({ onBack, onTryQuery }: AdvancedSearchPageProps) {

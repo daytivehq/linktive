@@ -29,6 +29,23 @@ func TestParseQuery(t *testing.T) {
 	if !reflect.DeepEqual(q.Terms, []string{"거래", "명세"}) {
 		t.Fatalf("unexpected Terms: %#v", q.Terms)
 	}
+
+	// Trailing comma & comma-separated operator values should parse cleanly.
+	q2 := ParseQuery("ws_1", "tags:커뮤니티, is:favorite")
+	if !reflect.DeepEqual(q2.IncludeTags, []string{"커뮤니티"}) {
+		t.Fatalf("expected IncludeTags=[커뮤니티], got %#v", q2.IncludeTags)
+	}
+	if q2.OnlyFavorite == nil || !*q2.OnlyFavorite {
+		t.Fatalf("expected OnlyFavorite=true")
+	}
+
+	q3 := ParseQuery("ws_1", "tags:커뮤니티,세금 is:blocked")
+	if !reflect.DeepEqual(q3.IncludeTags, []string{"커뮤니티", "세금"}) {
+		t.Fatalf("expected IncludeTags=[커뮤니티 세금], got %#v", q3.IncludeTags)
+	}
+	if q3.LinkStatus == nil || *q3.LinkStatus != "blocked" {
+		t.Fatalf("expected LinkStatus=blocked, got %#v", q3.LinkStatus)
+	}
 }
 
 func TestCompactText(t *testing.T) {

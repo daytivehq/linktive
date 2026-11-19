@@ -173,6 +173,20 @@ export interface WorkspaceStats {
   favorite_count: number;
   uncollected_count: number;
   broken_count: number;
+  blocked_count: number;
+  duplicate_count: number;
+}
+
+export interface DuplicateBookmarkGroup {
+  normalized_url: string;
+  count: number;
+  bookmarks: Bookmark[];
+}
+
+export interface DuplicateLinksResult {
+  groups: DuplicateBookmarkGroup[];
+  total_groups: number;
+  total_excess: number;
 }
 
 export interface SavedFilter {

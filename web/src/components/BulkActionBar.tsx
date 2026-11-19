@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FolderInput, Star, Tag, Trash2, X } from 'lucide-react';
 import type { BulkBookmarkAction, Collection } from '../types/bookmark';
+import { flattenCollectionsTree } from '../utils/collections';
 
 interface BulkActionBarProps {
   selectedCount: number;
@@ -31,8 +32,8 @@ export function BulkActionBar({
   const [tagsInput, setTagsInput] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const sortedCollections = useMemo(
-    () => [...collections].sort((a, b) => a.name.localeCompare(b.name, 'ko')),
+  const hierarchicalCollections = useMemo(
+    () => flattenCollectionsTree(collections),
     [collections],
   );
 
@@ -141,14 +142,14 @@ export function BulkActionBar({
               >
                 미분류
               </button>
-              {sortedCollections.map((c) => (
+              {hierarchicalCollections.map(({ collection, indentedLabel }) => (
                 <button
-                  key={c.id}
+                  key={collection.id}
                   type="button"
-                  onClick={() => void run({ action: 'move', collection_id: c.id })}
+                  onClick={() => void run({ action: 'move', collection_id: collection.id })}
                   className="flex w-full truncate rounded-lg px-2.5 py-1.5 text-left text-slate-700 hover:bg-slate-100"
                 >
-                  {c.name}
+                  {indentedLabel}
                 </button>
               ))}
             </div>

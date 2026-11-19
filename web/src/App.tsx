@@ -4,9 +4,12 @@ import {
   Bookmark as BookmarkIcon,
   BookmarkPlus,
   Check,
+  CheckCircle2,
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Copy,
   ExternalLink,
   Filter,
@@ -45,6 +48,7 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import { api } from './api/client';
+import { useBackClose } from './hooks/useBackClose';
 import { useEscapeKey } from './hooks/useEscapeKey';
 import { useScrollLock } from './hooks/useScrollLock';
 import { AddBookmarkModal } from './components/AddBookmarkModal';
@@ -77,6 +81,7 @@ import {
   type Bookmark,
   type BulkBookmarkAction,
   type Collection,
+  type DuplicateLinksResult,
   type LinkStatus,
   type SavedFilter,
   type SharedCollectionView,
@@ -197,11 +202,18 @@ function AuthenticatedShell({
     favorite_count: 0,
     uncollected_count: 0,
     broken_count: 0,
+    blocked_count: 0,
+    duplicate_count: 0,
   });
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [totalBookmarks, setTotalBookmarks] = useState(0);
   const [loadingBookmarks, setLoadingBookmarks] = useState(false);
-  const [brokenStatusTab, setBrokenStatusTab] = useState<'broken' | 'blocked'>('broken');
+  const [brokenStatusTab, setBrokenStatusTab] = useState<'broken' | 'blocked' | 'duplicates'>('broken');
+  const [duplicateResult, setDuplicateResult] = useState<DuplicateLinksResult>({
+    groups: [],
+    total_groups: 0,
+    total_excess: 0,
+  });
   const [checkingLinks, setCheckingLinks] = useState(false);
   const [linkCheckNotice, setLinkCheckNotice] = useState('');
 
@@ -249,6 +261,8 @@ function AuthenticatedShell({
       return true;
     }
   });
+  const [allColsExpanded, setAllColsExpanded] = useState(true);
+  const [colExpandSignal, setColExpandSignal] = useState({ expanded: true, seq: 0 });
   const [filtersOpen, setFiltersOpen] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('linktive_sidebar_filters') !== 'false';
@@ -286,6 +300,12 @@ function AuthenticatedShell({
 
   useScrollLock(mobileSidebarOpen);
   useEscapeKey(() => setMobileSidebarOpen(false), mobileSidebarOpen);
+  useBackClose(mobileSidebarOpen, () => setMobileSidebarOpen(false));
+  useBackClose(detailDrawer !== null, () => setDetailDrawer(null));
+  useEscapeKey(() => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  }, selectMode);
 
   const urlQuery = location.pathname === '/search' ? (searchParams.get('q') ?? '') : '';
   const [searchInput, setSearchInput] = useState(urlQuery);
@@ -468,6 +488,14 @@ function AuthenticatedShell({
       }
 
       setActiveSharedCollection(null);
+      if (routeScope.kind === 'broken-links' && brokenStatusTab === 'duplicates') {
+        const dupRes = await api.listDuplicateLinks(activeWorkspace.id);
+        setDuplicateResult(dupRes);
+        setBookmarks([]);
+        setTotalBookmarks(dupRes.total_excess);
+        return;
+      }
+
       const res = await api.listBookmarks(activeWorkspace.id, {
         q:
           routeScope.kind === 'search'
@@ -718,9 +746,17 @@ function AuthenticatedShell({
     await refreshSidebar(activeWorkspace.id);
   };
 
+  const handleMarkBookmarkLinkOk = async (bm: Bookmark) => {
+    const updated = await api.setBookmarkLinkStatus(activeWorkspace.id, bm.id, 'ok');
+    if (detailDrawer?.bookmark.id === bm.id) {
+      setDetailDrawer((prev) => (prev ? { ...prev, bookmark: updated } : null));
+    }
+    await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
+  };
+
   const handleDeleteSavedFilter = (f: SavedFilter) => {
     setConfirmState({
-      title: '저장된 필터 삭제',
+      title: '필터 삭제',
       message: `"${f.name}" 필터를 삭제할까요?`,
       onConfirm: async () => {
         await api.deleteSavedFilter(activeWorkspace.id, f.id);
@@ -943,9 +979,9 @@ function AuthenticatedShell({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Link2Off className="h-5 w-5 text-rose-500" />
-              <h1 className="text-xl font-bold text-slate-900">손상된 링크</h1>
+              <h1 className="text-xl font-bold text-slate-900">링크 점검</h1>
             </div>
-            {canEditWorkspace && (
+            {canEditWorkspace && brokenStatusTab !== 'duplicates' && (
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -979,7 +1015,7 @@ function AuthenticatedShell({
                   : 'bg-white text-slate-600 hover:bg-slate-100'
               }`}
             >
-              손상됨 (404/연결 오류)
+              손상됨 ({stats.broken_count})
             </button>
             <button
               type="button"
@@ -990,8 +1026,38 @@ function AuthenticatedShell({
                   : 'bg-white text-slate-600 hover:bg-slate-100'
               }`}
             >
-              접근 제한 (401/403/429)
+              접근 제한 ({stats.blocked_count})
             </button>
+            <button
+              type="button"
+              onClick={() => setBrokenStatusTab('duplicates')}
+              className={`rounded-full px-3 py-1 font-medium ${
+                brokenStatusTab === 'duplicates'
+                  ? 'bg-sky-100 text-sky-800'
+                  : 'bg-white text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              중복 링크 ({stats.duplicate_count})
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs leading-relaxed text-slate-600">
+            {brokenStatusTab === 'broken' && (
+              <span>
+                <strong className="text-rose-700">손상됨</strong>: 페이지 없음(404/410), 서버 오류(5xx), 도메인 연결 실패 등으로 실제 접속이 되지 않는 링크입니다.
+              </span>
+            )}
+            {brokenStatusTab === 'blocked' && (
+              <span>
+                <strong className="text-amber-700">접근 제한</strong>: 로그인 필요(401)나 보안·봇 차단(403/429) 때문에 자동 검사만 거절된 링크입니다. 브라우저로 직접 열었을 때 정상 접속된다면{' '}
+                <strong>정상 처리</strong> 버튼으로 목록에서 해제할 수 있습니다.
+              </span>
+            )}
+            {brokenStatusTab === 'duplicates' && (
+              <span>
+                <strong className="text-sky-700">중복 링크</strong>: 같은 공간에 동일한 URL이 2개 이상 저장된 항목입니다. 유지할 북마크만 남기고 불필요한 중복 항목을 정리할 수 있습니다.
+              </span>
+            )}
           </div>
 
           {linkCheckNotice && (
@@ -1151,7 +1217,88 @@ function AuthenticatedShell({
         />
       )}
 
-      {loadingBookmarks && bookmarks.length === 0 ? (
+      {routeScope.kind === 'broken-links' && brokenStatusTab === 'duplicates' ? (
+        loadingBookmarks ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">
+            중복 링크를 불러오는 중...
+          </div>
+        ) : duplicateResult.groups.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
+            중복 저장된 링크가 없습니다.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {duplicateResult.groups.map((grp) => (
+              <div
+                key={grp.normalized_url}
+                className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs">
+                  <a
+                    href={grp.bookmarks[0]?.url || grp.normalized_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 flex-1 truncate font-mono font-medium text-sky-700 hover:underline"
+                  >
+                    {grp.normalized_url}
+                  </a>
+                  <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">
+                    {grp.count}개 중복
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {grp.bookmarks.map((bm) => {
+                    const col = collections.find((c) => c.id === bm.collection_id);
+                    return (
+                      <div
+                        key={bm.id}
+                        className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setDetailDrawer({ bookmark: bm, editing: false })}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="truncate font-semibold text-slate-900 hover:text-sky-600">
+                            {bm.title || bm.domain}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                            <span>컬렉션: {col ? col.name : '미분류'}</span>
+                            <span>·</span>
+                            <span>추가일: {bm.created_at.slice(0, 10)}</span>
+                          </div>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <a
+                            href={bm.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="새 탭에서 열기"
+                            className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                          {canEditWorkspace && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBookmark(bm)}
+                              title="이 중복 북마크 삭제"
+                              className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>삭제</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : loadingBookmarks && bookmarks.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">
           북마크를 불러오는 중...
         </div>
@@ -1202,6 +1349,15 @@ function AuthenticatedShell({
                             Icon: Star,
                             onClick: () => void handleToggleFavorite(bm),
                           },
+                          ...(!isSharedCollectionView && (bm.link_status === 'broken' || bm.link_status === 'blocked')
+                            ? [
+                                {
+                                  label: '링크 정상 처리',
+                                  Icon: CheckCircle2,
+                                  onClick: () => void handleMarkBookmarkLinkOk(bm),
+                                },
+                              ]
+                            : []),
                         ]
                       : []),
                     {
@@ -1643,6 +1799,7 @@ function AuthenticatedShell({
               <button
                 type="button"
                 onClick={() => goScope('/broken-links')}
+                title={`손상됨 ${stats.broken_count}개 · 접근 제한 ${stats.blocked_count}개 · 중복 ${stats.duplicate_count}개`}
                 className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 font-medium ${
                   routeScope.kind === 'broken-links'
                     ? 'bg-rose-50 text-rose-700'
@@ -1651,10 +1808,16 @@ function AuthenticatedShell({
               >
                 <span className="flex items-center gap-2">
                   <Link2Off className="h-4 w-4 text-rose-500" />
-                  손상된 링크
+                  링크 점검
                 </span>
-                <span className={`text-xs ${stats.broken_count > 0 ? 'font-semibold text-rose-600' : 'text-slate-400'}`}>
-                  {stats.broken_count}
+                <span
+                  className={`text-xs ${
+                    stats.broken_count + stats.blocked_count > 0
+                      ? 'font-semibold text-rose-600'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  {stats.broken_count + stats.blocked_count}
                 </span>
               </button>
             </div>
@@ -1685,18 +1848,42 @@ function AuthenticatedShell({
                   )}
                   <span>컬렉션</span>
                 </button>
-                {canEditWorkspace && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCollectionModal({ open: true, editing: null, initialParentId: null })
-                    }
-                    title="새 컬렉션"
-                    className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  >
-                    <FolderPlus className="h-4 w-4" />
-                  </button>
-                )}
+                <div className="flex items-center gap-0.5">
+                  {collections.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !allColsExpanded;
+                        setAllColsExpanded(next);
+                        setColExpandSignal((prev) => ({ expanded: next, seq: prev.seq + 1 }));
+                        if (next && !collectionsOpen) {
+                          setCollectionsOpen(true);
+                        }
+                      }}
+                      title={allColsExpanded ? '모든 하위 컬렉션 접기' : '모든 하위 컬렉션 펼치기'}
+                      aria-label={allColsExpanded ? '모든 하위 컬렉션 접기' : '모든 하위 컬렉션 펼치기'}
+                      className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      {allColsExpanded ? (
+                        <ChevronsDownUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronsUpDown className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
+                  {canEditWorkspace && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollectionModal({ open: true, editing: null, initialParentId: null })
+                      }
+                      title="새 컬렉션"
+                      className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <FolderPlus className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </div>
               {collectionsOpen && (
                 <CollectionTree
@@ -1705,6 +1892,7 @@ function AuthenticatedShell({
                     routeScope.kind === 'collection' ? routeScope.collectionId : undefined
                   }
                   canEdit={canEditWorkspace}
+                  expandAllSignal={colExpandSignal}
                   onSelect={(id) => goScope(`/collections/${encodeURIComponent(id)}`)}
                   onCreateChild={(parentId) =>
                     setCollectionModal({ open: true, editing: null, initialParentId: parentId })
@@ -1812,7 +2000,7 @@ function AuthenticatedShell({
               </div>
             )}
 
-            {/* Saved Filters (collapsible) */}
+            {/* Filters (collapsible) */}
             <div>
               <div className="mb-1.5 flex items-center justify-between px-1.5">
                 <button
@@ -1828,7 +2016,7 @@ function AuthenticatedShell({
                       return next;
                     });
                   }}
-                  title="저장된 필터 접기/펼치기"
+                  title="필터 목록 접기/펼치기"
                   className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] font-bold tracking-tight text-slate-700 hover:text-sky-600"
                 >
                   {filtersOpen ? (
@@ -1836,7 +2024,7 @@ function AuthenticatedShell({
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
                   )}
-                  <span>저장된 필터</span>
+                  <span>필터</span>
                 </button>
                 {canEditWorkspace && (
                   <button
@@ -1844,8 +2032,8 @@ function AuthenticatedShell({
                     onClick={() =>
                       setSavedFilterModal({ open: true, editing: null, initialQuery: '' })
                     }
-                    title="새 저장된 필터"
-                    aria-label="새 저장된 필터"
+                    title="새 필터"
+                    aria-label="새 필터"
                     className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                   >
                     <Plus className="h-4 w-4" />
@@ -1854,7 +2042,7 @@ function AuthenticatedShell({
               </div>
               {filtersOpen &&
                 (savedFilters.length === 0 ? (
-                  <p className="px-2.5 text-xs text-slate-400">저장된 필터가 없습니다.</p>
+                  <p className="px-2.5 text-xs text-slate-400">필터가 없습니다.</p>
                 ) : (
                   <div className="space-y-0.5">
                     {savedFilters.map((f) => {
@@ -2142,6 +2330,7 @@ function AuthenticatedShell({
         {/* Right Main Area */}
         <main
           data-scroll-pane
+          data-lock-on-modal
           onScroll={(e) => handlePaneScroll(e.currentTarget)}
           className="min-w-0 flex-1 p-3 sm:p-6 md:h-full md:overflow-y-auto"
         >
@@ -2272,6 +2461,7 @@ function AuthenticatedShell({
           onDelete={(bm) => handleDeleteBookmark(bm)}
           onToggleFavorite={(bm) => void handleToggleFavorite(bm)}
           onCheckLink={handleCheckBookmarkLink}
+          onMarkLinkOk={handleMarkBookmarkLinkOk}
         />
       )}
 
@@ -2282,6 +2472,7 @@ function AuthenticatedShell({
           onClose={() =>
             setSavedFilterModal({ open: false, editing: null, initialQuery: '' })
           }
+          onOpenAdvancedSearch={() => navigate('/advanced-search')}
           onSave={handleSaveSavedFilter}
         />
       )}

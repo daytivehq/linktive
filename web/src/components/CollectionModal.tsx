@@ -3,6 +3,7 @@ import { Search, X } from 'lucide-react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
 import type { Collection } from '../types/bookmark';
+import { flattenCollectionsTree } from '../utils/collections';
 import { COLLECTION_COLORS, COLLECTION_ICONS, CollectionIcon } from './IconPicker';
 
 interface CollectionModalProps {
@@ -104,10 +105,7 @@ export function CollectionModal({
   }, [collections, editing]);
 
   const parentOptions = useMemo(
-    () =>
-      collections
-        .filter((c) => !excludedIds.has(c.id))
-        .sort((a, b) => a.name.localeCompare(b.name, 'ko')),
+    () => flattenCollectionsTree(collections.filter((c) => !excludedIds.has(c.id))),
     [collections, excludedIds],
   );
 
@@ -186,9 +184,9 @@ export function CollectionModal({
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
               >
                 <option value="">없음 (최상위)</option>
-                {parentOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+                {parentOptions.map(({ collection, indentedLabel }) => (
+                  <option key={collection.id} value={collection.id}>
+                    {indentedLabel}
                   </option>
                 ))}
               </select>

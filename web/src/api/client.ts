@@ -7,6 +7,7 @@ import type {
   BulkBookmarkAction,
   Collection,
   CollectionShare,
+  DuplicateLinksResult,
   LinkCheckSummary,
   LinkStatus,
   MemberRole,
@@ -342,11 +343,20 @@ export const api = {
       method: 'POST',
     }),
 
+  setBookmarkLinkStatus: (wsID: string, bmID: string, linkStatus: LinkStatus) =>
+    request<Bookmark>(`/api/v1/workspaces/${wsID}/bookmarks/${bmID}/link-status`, {
+      method: 'POST',
+      body: JSON.stringify({ link_status: linkStatus }),
+    }),
+
   checkWorkspaceLinks: (wsID: string, onlyUnchecked = false) =>
     request<LinkCheckSummary>(`/api/v1/workspaces/${wsID}/links/check`, {
       method: 'POST',
       body: JSON.stringify({ only_unchecked: onlyUnchecked }),
     }),
+
+  listDuplicateLinks: (wsID: string) =>
+    request<DuplicateLinksResult>(`/api/v1/workspaces/${wsID}/links/duplicates`),
 
   listSavedFilters: (wsID: string) =>
     request<{ items: SavedFilter[] }>(`/api/v1/workspaces/${wsID}/filters`),

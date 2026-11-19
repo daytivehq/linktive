@@ -14,6 +14,7 @@ import {
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
 import type { Bookmark, Collection, Workspace } from '../types/bookmark';
+import { flattenCollectionsTree } from '../utils/collections';
 import { FaviconBadge } from './FaviconBadge';
 
 interface BookmarkDetailDrawerProps {
@@ -38,6 +39,7 @@ interface BookmarkDetailDrawerProps {
   onDelete: (bm: Bookmark) => void;
   onToggleFavorite: (bm: Bookmark) => void;
   onCheckLink?: (bm: Bookmark) => Promise<void>;
+  onMarkLinkOk?: (bm: Bookmark) => Promise<void>;
 }
 
 export function BookmarkDetailDrawer({
@@ -51,6 +53,7 @@ export function BookmarkDetailDrawer({
   onDelete,
   onToggleFavorite,
   onCheckLink,
+  onMarkLinkOk,
 }: BookmarkDetailDrawerProps) {
   useScrollLock();
   useEscapeKey(onClose);
@@ -82,8 +85,8 @@ export function BookmarkDetailDrawer({
     setTagsText(bookmark.tags.join(', '));
   }, [bookmark, activeWorkspaceId]);
 
-  const sortedCollections = useMemo(
-    () => [...collections].sort((a, b) => a.name.localeCompare(b.name, 'ko')),
+  const hierarchicalCollections = useMemo(
+    () => flattenCollectionsTree(collections),
     [collections],
   );
   const currentCollection = collections.find((c) => c.id === bookmark.collection_id);
@@ -195,9 +198,9 @@ export function BookmarkDetailDrawer({
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
                 >
                   <option value="">미분류</option>
-                  {sortedCollections.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
+                  {hierarchicalCollections.map(({ collection, indentedLabel }) => (
+                    <option key={collection.id} value={collection.id}>
+                      {indentedLabel}
                     </option>
                   ))}
                 </select>
@@ -312,6 +315,17 @@ export function BookmarkDetailDrawer({
                       >
                         <RefreshCw className={`h-3 w-3 ${checkingLink ? 'animate-spin' : ''}`} />
                         <span>{checkingLink ? '확인 중...' : '링크 상태 확인'}</span>
+                      </button>
+                    )}
+                    {onMarkLinkOk && canEdit && (bookmark.link_status === 'broken' || bookmark.link_status === 'blocked') && (
+                      <button
+                        type="button"
+                        onClick={() => void onMarkLinkOk(bookmark)}
+                        title="직접 접속 확인 후 정상으로 표시"
+                        className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                        <span>정상 처리</span>
                       </button>
                     )}
                   </div>

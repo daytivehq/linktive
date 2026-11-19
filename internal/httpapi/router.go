@@ -115,8 +115,10 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 				ws.Patch("/bookmarks/{bmID}", h.handleUpdateBookmark)
 				ws.Delete("/bookmarks/{bmID}", h.handleDeleteBookmark)
 				ws.Post("/bookmarks/{bmID}/check-link", h.handleCheckBookmarkLink)
+				ws.Post("/bookmarks/{bmID}/link-status", h.handleSetBookmarkLinkStatus)
 
 				ws.Post("/links/check", h.handleCheckWorkspaceLinks)
+				ws.Get("/links/duplicates", h.handleListDuplicateLinks)
 
 				ws.Get("/filters", h.handleListSavedFilters)
 				ws.Post("/filters", h.handleCreateSavedFilter)

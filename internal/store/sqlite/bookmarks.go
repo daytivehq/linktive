@@ -522,7 +522,7 @@ func (s *Store) ListTags(ctx context.Context, workspaceID string) ([]domain.TagS
 	return items, rows.Err()
 }
 
-// GetWorkspaceStats returns sidebar counters for all, favorite, uncollected, and broken bookmarks.
+// GetWorkspaceStats returns sidebar counters for all, favorite, uncollected, broken, blocked, and duplicate bookmarks.
 func (s *Store) GetWorkspaceStats(ctx context.Context, workspaceID string) (domain.WorkspaceStats, error) {
 	var stats domain.WorkspaceStats
 	err := s.db.QueryRowContext(ctx, `
@@ -530,11 +530,106 @@ func (s *Store) GetWorkspaceStats(ctx context.Context, workspaceID string) (doma
 			COUNT(1),
 			COALESCE(SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN collection_id IS NULL THEN 1 ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN link_status = 'broken' THEN 1 ELSE 0 END), 0)
+			COALESCE(SUM(CASE WHEN link_status = 'broken' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN link_status = 'blocked' THEN 1 ELSE 0 END), 0)
 		FROM bookmarks
 		WHERE workspace_id = ?
-	`, workspaceID).Scan(&stats.AllCount, &stats.FavoriteCount, &stats.UncollectedCount, &stats.BrokenCount)
+	`, workspaceID).Scan(
+		&stats.AllCount,
+		&stats.FavoriteCount,
+		&stats.UncollectedCount,
+		&stats.BrokenCount,
+		&stats.BlockedCount,
+	)
+	if err != nil {
+		return stats, err
+	}
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(cnt - 1), 0)
+		FROM (
+			SELECT COUNT(1) AS cnt
+			FROM bookmarks
+			WHERE workspace_id = ?
+			GROUP BY normalized_url
+			HAVING COUNT(1) > 1
+		)
+	`, workspaceID).Scan(&stats.DuplicateCount)
 	return stats, err
+}
+
+// ListDuplicateBookmarks returns bookmarks grouped by normalized_url where more than one bookmark shares the URL.
+func (s *Store) ListDuplicateBookmarks(ctx context.Context, workspaceID string) (domain.DuplicateLinksResult, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT b.id, b.workspace_id, b.collection_id, b.created_by, b.url, b.normalized_url, b.domain,
+		       b.title, b.description, b.note, b.favicon_url, b.thumbnail_url, b.is_favorite, b.link_status,
+		       b.last_checked_at, b.created_at, b.updated_at
+		FROM bookmarks b
+		WHERE b.workspace_id = ?
+		  AND b.normalized_url IN (
+		    SELECT normalized_url
+		    FROM bookmarks
+		    WHERE workspace_id = ?
+		    GROUP BY normalized_url
+		    HAVING COUNT(1) > 1
+		  )
+		ORDER BY b.normalized_url ASC, b.created_at ASC
+	`, workspaceID, workspaceID)
+	if err != nil {
+		return domain.DuplicateLinksResult{}, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := make([]domain.Bookmark, 0)
+	ids := make([]string, 0)
+	for rows.Next() {
+		bm, sErr := scanBookmarkRows(rows)
+		if sErr != nil {
+			return domain.DuplicateLinksResult{}, sErr
+		}
+		items = append(items, bm)
+		ids = append(ids, bm.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.DuplicateLinksResult{}, err
+	}
+
+	tagMap, err := s.loadTagsForBookmarks(ctx, ids)
+	if err != nil {
+		return domain.DuplicateLinksResult{}, err
+	}
+
+	groupOrder := make([]string, 0)
+	byURL := make(map[string][]domain.Bookmark)
+	for i := range items {
+		if tags := tagMap[items[i].ID]; tags != nil {
+			items[i].Tags = tags
+		}
+		key := items[i].NormalizedURL
+		if _, exists := byURL[key]; !exists {
+			groupOrder = append(groupOrder, key)
+		}
+		byURL[key] = append(byURL[key], items[i])
+	}
+
+	groups := make([]domain.DuplicateBookmarkGroup, 0, len(groupOrder))
+	totalExcess := 0
+	for _, key := range groupOrder {
+		bms := byURL[key]
+		if len(bms) < 2 {
+			continue
+		}
+		totalExcess += len(bms) - 1
+		groups = append(groups, domain.DuplicateBookmarkGroup{
+			NormalizedURL: key,
+			Count:         len(bms),
+			Bookmarks:     bms,
+		})
+	}
+	return domain.DuplicateLinksResult{
+		Groups:      groups,
+		TotalGroups: len(groups),
+		TotalExcess: totalExcess,
+	}, nil
 }
 
 // UpdateBookmarkLinkStatus updates link reachability status and timestamp for a bookmark.

@@ -26,38 +26,61 @@ func ParseQuery(workspaceID, raw string) store.SearchQuery {
 		return q
 	}
 
-	for _, token := range strings.Fields(q.Raw) {
+	for _, rawToken := range strings.Fields(q.Raw) {
+		token := strings.TrimRight(rawToken, ",")
+		if token == "" {
+			continue
+		}
 		lower := strings.ToLower(token)
 		switch {
 		case strings.HasPrefix(lower, "tags:") && len(token) > 5:
-			q.IncludeTags = append(q.IncludeTags, strings.ToLower(token[5:]))
+			q.IncludeTags = append(q.IncludeTags, splitOperatorValues(token[5:], true)...)
 		case strings.HasPrefix(lower, "tag:") && len(token) > 4:
-			q.IncludeTags = append(q.IncludeTags, strings.ToLower(token[4:]))
+			q.IncludeTags = append(q.IncludeTags, splitOperatorValues(token[4:], true)...)
 		case strings.HasPrefix(lower, "-tags:") && len(token) > 6:
-			q.ExcludeTags = append(q.ExcludeTags, strings.ToLower(token[6:]))
+			q.ExcludeTags = append(q.ExcludeTags, splitOperatorValues(token[6:], true)...)
 		case strings.HasPrefix(lower, "-tag:") && len(token) > 5:
-			q.ExcludeTags = append(q.ExcludeTags, strings.ToLower(token[5:]))
+			q.ExcludeTags = append(q.ExcludeTags, splitOperatorValues(token[5:], true)...)
 		case strings.HasPrefix(lower, "site:") && len(token) > 5:
-			q.Domains = append(q.Domains, strings.ToLower(token[5:]))
+			q.Domains = append(q.Domains, splitOperatorValues(token[5:], true)...)
 		case strings.HasPrefix(lower, "in:") && len(token) > 3:
-			q.Collection = token[3:]
+			q.Collection = strings.Trim(token[3:], ",")
 		case strings.HasPrefix(lower, "date:") && len(token) > 5:
-			q.DateExact = token[5:]
+			q.DateExact = strings.Trim(token[5:], ",")
 		case strings.HasPrefix(lower, "after:") && len(token) > 6:
-			q.DateAfter = token[6:]
+			q.DateAfter = strings.Trim(token[6:], ",")
 		case strings.HasPrefix(lower, "before:") && len(token) > 7:
-			q.DateBefore = token[7:]
+			q.DateBefore = strings.Trim(token[7:], ",")
 		case lower == "is:favorite":
 			t := true
 			q.OnlyFavorite = &t
 		case lower == "is:broken":
 			s := domain.LinkStatusBroken
 			q.LinkStatus = &s
+		case lower == "is:blocked":
+			s := domain.LinkStatusBlocked
+			q.LinkStatus = &s
 		default:
 			q.Terms = append(q.Terms, token)
 		}
 	}
 	return q
+}
+
+func splitOperatorValues(raw string, lowercase bool) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		clean := strings.TrimSpace(p)
+		if clean == "" {
+			continue
+		}
+		if lowercase {
+			clean = strings.ToLower(clean)
+		}
+		out = append(out, clean)
+	}
+	return out
 }
 
 // CompactText normalizes text by stripping whitespace and lowercasing

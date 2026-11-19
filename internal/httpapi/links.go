@@ -112,3 +112,54 @@ func (a *apiHandler) handleCheckWorkspaceLinks(w http.ResponseWriter, r *http.Re
 
 	writeJSON(w, http.StatusOK, summary)
 }
+
+func (a *apiHandler) handleSetBookmarkLinkStatus(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	bmID := chi.URLParam(r, "bmID")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
+		return
+	}
+
+	var req struct {
+		LinkStatus domain.LinkStatus `json:"link_status"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	switch req.LinkStatus {
+	case domain.LinkStatusOK, domain.LinkStatusBroken, domain.LinkStatusBlocked, domain.LinkStatusUnknown:
+	default:
+		writeError(w, http.StatusBadRequest, "invalid link_status")
+		return
+	}
+
+	now := time.Now().UTC()
+	if err := a.store.UpdateBookmarkLinkStatus(r.Context(), wsID, bmID, req.LinkStatus, now); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "bookmark not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to update link status")
+		return
+	}
+	updated, err := a.store.GetBookmark(r.Context(), wsID, bmID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reload bookmark")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (a *apiHandler) handleListDuplicateLinks(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleViewer) {
+		return
+	}
+	res, err := a.store.ListDuplicateBookmarks(r.Context(), wsID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list duplicate links")
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
