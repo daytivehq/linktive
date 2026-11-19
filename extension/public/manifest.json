@@ -25,7 +25,7 @@
   "omnibox": {
     "keyword": "lk"
   },
-  "permissions": ["activeTab", "tabs", "storage"],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "commands": {
     "_execute_action": {

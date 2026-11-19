@@ -32,6 +32,7 @@ node_modules/
 
 # Browser extension
 /extension/dist/
+/extension/*.zip
 
 # OS & Editors
 .DS_Store
