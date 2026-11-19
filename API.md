@@ -39,8 +39,8 @@ Authorization: Bearer lkt_YOUR_API_KEY
 
 ### 북마크 · 검색 · 일괄 처리
 - `GET /api/v1/workspaces/{wsID}/bookmarks`
-  - 쿼리 파라미터: `q`, `collection_id` (`uncollected` 가능), `favorite=true`, `tag`, `sort` (`relevance|newest|oldest|title`), `limit`, `offset`
-  - 검색 연산자: `tags:`, `-tags:`, `site:`, `in:`, `date:YYYY-MM-DD`, `after:YYYY-MM-DD`, `before:YYYY-MM-DD`, `is:favorite`, `is:broken`
+  - 쿼리 파라미터: `q`, `collection_id` (`uncollected` 가능), `include_children=true`, `favorite=true`, `tag`, `link_status` (`unknown|ok|broken|blocked`), `sort` (`relevance|newest|oldest|title`), `limit`, `offset`
+  - 검색 연산자: `tags:`, `-tags:`, `site:`, `in:`, `date:YYYY-MM-DD`, `after:YYYY-MM-DD`, `before:YYYY-MM-DD`, `is:favorite`, `is:broken`, `is:blocked`
 - `POST /api/v1/workspaces/{wsID}/bookmarks`
   - `{"url": "https://example.com", "collection_id": null, "tags": ["개발"], "allow_duplicate": false}`
   - `title`·`description`을 비워두면 대상 페이지에서 제목·설명·파비콘을 자동 수집합니다.
@@ -51,13 +51,29 @@ Authorization: Bearer lkt_YOUR_API_KEY
 - `POST /api/v1/workspaces/{wsID}/bookmarks/bulk`
   - `action`: `favorite`, `unfavorite`, `move`, `delete`, `tags_add`, `tags_set`, `tags_remove`
 
+### 필터 & 링크 점검
+- `GET /api/v1/workspaces/{wsID}/filters` — 저장된 필터 목록 조회
+- `POST /api/v1/workspaces/{wsID}/filters` — 필터 생성 (`name`, `query`, `icon`, `color`)
+- `PATCH /api/v1/workspaces/{wsID}/filters/{filterID}` — 필터 수정
+- `DELETE /api/v1/workspaces/{wsID}/filters/{filterID}` — 필터 삭제
+- `POST /api/v1/workspaces/{wsID}/bookmarks/{bmID}/check-link` — 단일 북마크 링크 상태 점검
+- `POST /api/v1/workspaces/{wsID}/bookmarks/{bmID}/link-status` — 북마크 링크 상태 수동 변경 (`{"link_status": "ok|broken|blocked|unknown"}`)
+- `POST /api/v1/workspaces/{wsID}/links/check` — 공간 내 전체(또는 `{"only_unchecked": true}`) 북마크 링크 일괄 점검
+- `GET /api/v1/workspaces/{wsID}/links/duplicates` — 동일 URL 중복 북마크 그룹 조회
+
 ### 태그 · 통계 · 가져오기/내보내기
 - `GET /api/v1/workspaces/{wsID}/tags` — 사용 중인 태그 목록 및 개수
 - `PATCH /api/v1/workspaces/{wsID}/tags/{tagName}` — 태그 이름 변경 (기존 태그와 이름 동일 시 자동 병합)
 - `DELETE /api/v1/workspaces/{wsID}/tags/{tagName}` — 태그 삭제
-- `GET /api/v1/workspaces/{wsID}/stats` — 전체/즐겨찾기/미분류 개수
+- `GET /api/v1/workspaces/{wsID}/stats` — 전체·즐겨찾기·미분류·손상·접근제한·중복 개수
 - `GET /api/v1/workspaces/{wsID}/export?format=json|html|csv` — 내보내기
 - `POST /api/v1/workspaces/{wsID}/import` — 가져오기 (`multipart/form-data`의 `file`, `format=auto|linktive_json|html|raindrop_csv|linkwarden_json|karakeep_json`, `skip_duplicates=true`)
+
+### 관리자 · 자동 백업 (Admin 전용)
+- `GET /api/v1/admin/backups` — 자동 백업 설정 및 저장된 스냅샷 목록 조회
+- `PATCH /api/v1/admin/backups/settings` — 자동 백업 활성화·주기(시간)·보관 개수 설정
+- `POST /api/v1/admin/backups/run` — SQLite 온라인 스냅샷 백업 즉시 실행
+- `GET /api/v1/admin/backups/{filename}`, `DELETE /api/v1/admin/backups/{filename}` — 백업 파일 다운로드/삭제
 
 ---
 
