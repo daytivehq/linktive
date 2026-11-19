@@ -227,6 +227,33 @@ func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 for editor writing to shared collection, got %d %s", rec.Code, rec.Body.String())
 	}
+
+	// API Key creation + Bearer token access + Export/Import roundtrip.
+	keyRec := doJSON(t, handler, http.MethodPost, "/api/v1/api-keys", map[string]string{"name": "cli"}, cookies1)
+	if keyRec.Code != http.StatusCreated {
+		t.Fatalf("create api key failed: %d", keyRec.Code)
+	}
+	var keyResp struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(keyRec.Body.Bytes(), &keyResp)
+
+	expReq := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/"+ws1+"/export?format=json", nil)
+	expReq.Header.Set("Authorization", "Bearer "+keyResp.Token)
+	expRec := httptest.NewRecorder()
+	handler.ServeHTTP(expRec, expReq)
+	if expRec.Code != http.StatusOK || !strings.Contains(expRec.Body.String(), "북마크1") {
+		t.Fatalf("bearer export failed: %d %s", expRec.Code, expRec.Body.String())
+	}
+
+	impRec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/import", map[string]any{
+		"format":          "auto",
+		"content":         expRec.Body.String(),
+		"skip_duplicates": true,
+	}, cookies1)
+	if impRec.Code != http.StatusOK || !strings.Contains(impRec.Body.String(), `"skipped":2`) {
+		t.Fatalf("import duplicate check failed: %d %s", impRec.Code, impRec.Body.String())
+	}
 }
 
 func doJSON(t *testing.T, handler http.Handler, method, target string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {

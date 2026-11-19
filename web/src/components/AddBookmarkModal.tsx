@@ -90,7 +90,7 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
                 setUrl(e.target.value);
                 setDuplicateInfo(null);
               }}
-              placeholder="naver.com 또는 https://example.com"
+              placeholder="https://example.com"
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
             />
             <p className="mt-1.5 text-xs text-slate-500">

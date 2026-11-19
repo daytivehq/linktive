@@ -8,6 +8,7 @@ interface BulkActionBarProps {
   collections: Collection[];
   onSelectAll: () => void;
   onClearSelection: () => void;
+  onRequestDelete: () => void;
   onExecute: (payload: {
     action: BulkBookmarkAction;
     collection_id?: string | null;
@@ -21,6 +22,7 @@ export function BulkActionBar({
   collections,
   onSelectAll,
   onClearSelection,
+  onRequestDelete,
   onExecute,
 }: BulkActionBarProps) {
   const [moveOpen, setMoveOpen] = useState(false);
@@ -112,11 +114,7 @@ export function BulkActionBar({
         <button
           type="button"
           disabled={selectedCount === 0 || busy}
-          onClick={() => {
-            if (window.confirm(`선택한 ${selectedCount}개의 북마크를 삭제할까요?`)) {
-              void run({ action: 'delete' });
-            }
-          }}
+          onClick={onRequestDelete}
           className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 font-medium text-rose-600 shadow-2xs hover:bg-rose-50 disabled:opacity-40"
         >
           <Trash2 className="h-3.5 w-3.5" />

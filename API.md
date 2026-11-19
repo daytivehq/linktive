@@ -1,0 +1,80 @@
+# linktive REST API 매뉴얼
+
+기본 경로는 `/api/v1` 입니다. 웹 UI와 브라우저 확장, 외부 자동화 스크립트(n8n, 크론 백업, 단축어 등)가 모두 동일한 REST API를 사용합니다.
+
+## 1. 인증 방법
+
+웹 UI의 **설정 → API 키** 탭에서 `lkt_...` 토큰을 발급받은 뒤, 요청 헤더에 Bearer 토큰을 포함하세요.
+
+```http
+Authorization: Bearer lkt_YOUR_API_KEY
+```
+
+---
+
+## 2. 주요 엔드포인트
+
+### 헬스체크 & 계정
+- `GET /api/v1/health` — 서버 및 SQLite 연결 확인 (인증 불필요)
+- `GET /api/v1/auth/me` — 내 계정 및 소속(워크스페이스) 목록 조회
+- `PATCH /api/v1/auth/settings` — 클릭 동작·보기 모드 등 사용자 설정 저장
+- `GET /api/v1/api-keys`, `POST /api/v1/api-keys`, `DELETE /api/v1/api-keys/{keyID}` — API 키 관리
+
+### 소속 (Workspaces)
+- `GET /api/v1/workspaces` — 소속 목록 조회
+- `POST /api/v1/workspaces` — 새 공유 소속 생성 (`{"name": "가족 공유"}`)
+- `PATCH /api/v1/workspaces/{wsID}` — 소속 이름 변경 (Owner)
+- `DELETE /api/v1/workspaces/{wsID}` — 공유 소속 삭제 (Owner, 개인 소속 제외)
+- `GET/POST /api/v1/workspaces/{wsID}/members`, `DELETE /api/v1/workspaces/{wsID}/members/{userID}` — 멤버 관리
+
+### 컬렉션 & 공개/공유
+- `GET /api/v1/workspaces/{wsID}/collections` — 컬렉션 목록 및 북마크 수 조회
+- `POST /api/v1/workspaces/{wsID}/collections` — 컬렉션 생성 (`name`, `parent_id`, `description`, `icon`, `color`)
+- `PATCH /api/v1/workspaces/{wsID}/collections/{colID}` — 컬렉션 수정 / 상위 폴더 변경
+- `DELETE /api/v1/workspaces/{wsID}/collections/{colID}` — 컬렉션 삭제
+- `POST /api/v1/workspaces/{wsID}/collections/{colID}/public` — 공개 링크 활성화/비활성화 (`{"enabled": true}`)
+- `GET /api/v1/public/collections/{slug}` — 공개된 컬렉션 조회 (인증 불필요)
+- `GET/POST /api/v1/workspaces/{wsID}/collections/{colID}/shares`, `DELETE .../shares/{shareID}` — 사용자/소속 공유 관리
+- `GET /api/v1/shared-collections` — 내가 공유받은 컬렉션 목록
+
+### 북마크 · 검색 · 일괄 처리
+- `GET /api/v1/workspaces/{wsID}/bookmarks`
+  - 쿼리 파라미터: `q`, `collection_id` (`uncollected` 가능), `favorite=true`, `tag`, `sort` (`relevance|newest|oldest|title`), `limit`, `offset`
+  - 검색 연산자: `tags:`, `-tags:`, `site:`, `in:`, `date:YYYY-MM-DD`, `after:YYYY-MM-DD`, `before:YYYY-MM-DD`, `is:favorite`, `is:broken`
+- `POST /api/v1/workspaces/{wsID}/bookmarks`
+  - `{"url": "https://example.com", "collection_id": null, "tags": ["개발"], "allow_duplicate": false}`
+  - `title`·`description`을 비워두면 대상 페이지에서 제목·설명·파비콘을 자동 수집합니다.
+  - 동일 정규화 URL이 이미 있으면 `409 Conflict`와 함께 `existing` 북마크를 반환합니다.
+- `GET /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 단일 북마크 조회
+- `PATCH /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 북마크 수정 및 소속 이동(`target_workspace_id`)
+- `DELETE /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 북마크 삭제
+- `POST /api/v1/workspaces/{wsID}/bookmarks/bulk`
+  - `action`: `favorite`, `unfavorite`, `move`, `delete`, `tags_add`, `tags_set`, `tags_remove`
+
+### 태그 · 통계 · 가져오기/내보내기
+- `GET /api/v1/workspaces/{wsID}/tags` — 사용 중인 태그 목록 및 개수
+- `PATCH /api/v1/workspaces/{wsID}/tags/{tagName}` — 태그 이름 변경 (기존 태그와 이름 동일 시 자동 병합)
+- `DELETE /api/v1/workspaces/{wsID}/tags/{tagName}` — 태그 삭제
+- `GET /api/v1/workspaces/{wsID}/stats` — 전체/즐겨찾기/미분류 개수
+- `GET /api/v1/workspaces/{wsID}/export?format=json|html|csv` — 내보내기
+- `POST /api/v1/workspaces/{wsID}/import` — 가져오기 (`multipart/form-data`의 `file`, `format=auto|linktive_json|html|raindrop_csv|linkwarden_json|karakeep_json`, `skip_duplicates=true`)
+
+---
+
+## 3. curl 예시
+
+```bash
+# 북마크 검색 (한국어 중간 글자 + 태그 필터)
+curl -sS "http://localhost:18080/api/v1/workspaces/<WS_ID>/bookmarks?q=tags:세금+래명세" \
+  -H "Authorization: Bearer lkt_YOUR_API_KEY"
+
+# URL만으로 북마크 추가
+curl -sS -X POST "http://localhost:18080/api/v1/workspaces/<WS_ID>/bookmarks" \
+  -H "Authorization: Bearer lkt_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"naver.com"}'
+
+# JSON 전체 백업 저장
+curl -sS "http://localhost:18080/api/v1/workspaces/<WS_ID>/export?format=json" \
+  -H "Authorization: Bearer lkt_YOUR_API_KEY" -o backup.json
+```

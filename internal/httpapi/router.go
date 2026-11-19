@@ -78,6 +78,9 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 				ws.Patch("/tags/{tagName}", h.handleRenameTag)
 				ws.Delete("/tags/{tagName}", h.handleDeleteTag)
 				ws.Get("/stats", h.handleGetWorkspaceStats)
+
+				ws.Get("/export", h.handleExportWorkspace)
+				ws.Post("/import", h.handleImportWorkspace)
 			})
 		})
 	})

@@ -331,4 +331,39 @@ export const api = {
     request<{ status: string }>(`/api/v1/shared-collections/${colID}/bookmarks/${bmID}`, {
       method: 'DELETE',
     }),
+
+  exportWorkspaceUrl: (wsID: string, format: 'json' | 'html' | 'csv') =>
+    `/api/v1/workspaces/${wsID}/export?format=${format}`,
+
+  importWorkspace: async (
+    wsID: string,
+    file: File,
+    format: string,
+    skipDuplicates: boolean,
+  ): Promise<{
+    format: string;
+    imported: number;
+    skipped: number;
+    failed: number;
+    created_collections: number;
+  }> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('format', format);
+    form.append('skip_duplicates', String(skipDuplicates));
+
+    const res = await fetch(`/api/v1/workspaces/${wsID}/import`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new ApiError(
+        typeof data.error === 'string' ? data.error : `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+    return data;
+  },
 };

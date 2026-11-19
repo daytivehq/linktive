@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Calendar, Folder, Globe, Hash, Search, SlidersHorizontal, Star, ArrowRight } from 'lucide-react';
 
 interface SearchBarProps {
   value: string;
+  inputRef?: RefObject<HTMLInputElement | null>;
   onChange: (next: string) => void;
   onOpenAdvancedSearch: () => void;
 }
@@ -18,10 +19,11 @@ const FILTER_SUGGESTIONS = [
   { token: 'is:favorite ', label: '즐겨찾기만', desc: '즐겨찾기 필터', Icon: Star },
 ];
 
-export function SearchBar({ value, onChange, onOpenAdvancedSearch }: SearchBarProps) {
+export function SearchBar({ value, inputRef: externalRef, onChange, onOpenAdvancedSearch }: SearchBarProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const internalRef = useRef<HTMLInputElement>(null);
+  const inputRef = externalRef ?? internalRef;
 
   useEffect(() => {
     if (!open) return;

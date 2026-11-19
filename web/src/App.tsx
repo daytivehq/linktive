@@ -32,6 +32,7 @@ import { BookmarkDetailDrawer } from './components/BookmarkDetailDrawer';
 import { BulkActionBar } from './components/BulkActionBar';
 import { CollectionModal } from './components/CollectionModal';
 import { CollectionShareModal } from './components/CollectionShareModal';
+import { ConfirmModal } from './components/ConfirmModal';
 import {
   CollectionTree,
   MIME_BOOKMARK_DRAG,
@@ -39,8 +40,10 @@ import {
 import { FaviconBadge } from './components/FaviconBadge';
 import { HighlightText } from './components/HighlightText';
 import { CollectionIcon } from './components/IconPicker';
+import { RenameTagModal } from './components/RenameTagModal';
 import { SearchBar } from './components/SearchBar';
 import { AdvancedSearchPage } from './pages/AdvancedSearchPage';
+import { ApiDocsPage } from './pages/ApiDocsPage';
 import { PublicCollectionPage } from './pages/PublicCollectionPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TagsPage } from './pages/TagsPage';
@@ -190,6 +193,13 @@ function AuthenticatedShell({
     initialParentId: string | null;
   }>({ open: false, editing: null, initialParentId: null });
   const [shareModalCollection, setShareModalCollection] = useState<Collection | null>(null);
+  const [renameTagTarget, setRenameTagTarget] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [sidebarDropTarget, setSidebarDropTarget] = useState<'uncollected' | 'favorites' | null>(
     null,
@@ -201,6 +211,28 @@ function AuthenticatedShell({
   useEffect(() => {
     setSearchInput(urlQuery);
   }, [urlQuery]);
+
+  // Global "/" shortcut to focus search bar.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Clear selection when changing views or workspace.
   useEffect(() => {
@@ -483,15 +515,20 @@ function AuthenticatedShell({
     await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
   };
 
-  const handleDeleteBookmark = async (bm: Bookmark) => {
-    if (!window.confirm(`"${bm.title}" 북마크를 삭제할까요?`)) return;
-    if (isSharedCollectionView && activeSharedCollection) {
-      await api.deleteSharedCollectionBookmark(activeSharedCollection.id, bm.id);
-    } else {
-      await api.deleteBookmark(activeWorkspace.id, bm.id);
-    }
-    if (detailDrawer?.bookmark.id === bm.id) setDetailDrawer(null);
-    await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
+  const handleDeleteBookmark = (bm: Bookmark) => {
+    setConfirmState({
+      title: '북마크 삭제',
+      message: `"${bm.title}" 북마크를 삭제할까요?`,
+      onConfirm: async () => {
+        if (isSharedCollectionView && activeSharedCollection) {
+          await api.deleteSharedCollectionBookmark(activeSharedCollection.id, bm.id);
+        } else {
+          await api.deleteBookmark(activeWorkspace.id, bm.id);
+        }
+        if (detailDrawer?.bookmark.id === bm.id) setDetailDrawer(null);
+        await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
+      },
+    });
   };
 
   const handleToggleFavorite = async (bm: Bookmark) => {
@@ -562,17 +599,18 @@ function AuthenticatedShell({
     await refreshSidebar(activeWorkspace.id);
   };
 
-  const handleDeleteCollection = async (col: Collection) => {
-    if (
-      !window.confirm(`"${col.name}" 컬렉션을 삭제할까요? (하위 북마크는 미분류로 남습니다)`)
-    ) {
-      return;
-    }
-    await api.deleteCollection(activeWorkspace.id, col.id);
-    if (routeScope.kind === 'collection' && routeScope.collectionId === col.id) {
-      navigate('/bookmarks');
-    }
-    await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
+  const handleDeleteCollection = (col: Collection) => {
+    setConfirmState({
+      title: '컬렉션 삭제',
+      message: `"${col.name}" 컬렉션을 삭제할까요? (하위 북마크는 미분류로 남습니다)`,
+      onConfirm: async () => {
+        await api.deleteCollection(activeWorkspace.id, col.id);
+        if (routeScope.kind === 'collection' && routeScope.collectionId === col.id) {
+          navigate('/bookmarks');
+        }
+        await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
+      },
+    });
   };
 
   const handleRenameTag = async (oldName: string, newName: string) => {
@@ -583,13 +621,18 @@ function AuthenticatedShell({
     await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
   };
 
-  const handleDeleteTag = async (tagName: string) => {
-    if (!window.confirm(`"#${tagName}" 태그를 삭제할까요? (북마크는 삭제되지 않습니다)`)) return;
-    await api.deleteTag(activeWorkspace.id, tagName);
-    if (routeScope.kind === 'tag' && routeScope.tagName === tagName) {
-      navigate('/bookmarks');
-    }
-    await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
+  const handleDeleteTag = (tagName: string) => {
+    setConfirmState({
+      title: '태그 삭제',
+      message: `"#${tagName}" 태그를 삭제할까요? (북마크는 삭제되지 않습니다)`,
+      onConfirm: async () => {
+        await api.deleteTag(activeWorkspace.id, tagName);
+        if (routeScope.kind === 'tag' && routeScope.tagName === tagName) {
+          navigate('/bookmarks');
+        }
+        await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
+      },
+    });
   };
 
   const goScope = (path: string) => {
@@ -774,6 +817,13 @@ function AuthenticatedShell({
             setSelectedIds(new Set());
             setSelectMode(false);
           }}
+          onRequestDelete={() =>
+            setConfirmState({
+              title: '선택한 북마크 삭제',
+              message: `선택한 ${selectedIds.size}개의 북마크를 삭제할까요?`,
+              onConfirm: () => handleBulkExecute({ action: 'delete' }),
+            })
+          }
           onExecute={handleBulkExecute}
         />
       )}
@@ -953,6 +1003,7 @@ function AuthenticatedShell({
 
         <SearchBar
           value={searchInput}
+          inputRef={searchInputRef}
           onChange={setSearchInput}
           onOpenAdvancedSearch={() => navigate('/advanced-search')}
         />
@@ -1236,10 +1287,7 @@ function AuthenticatedShell({
                               type="button"
                               onClick={() => {
                                 setOpenTagMenu(null);
-                                const next = window.prompt('새 태그 이름을 입력하세요', t.name);
-                                if (next && next.trim() && next.trim() !== t.name) {
-                                  void handleRenameTag(t.name, next.trim());
-                                }
+                                setRenameTagTarget(t.name);
                               }}
                               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
                             >
@@ -1250,7 +1298,7 @@ function AuthenticatedShell({
                               type="button"
                               onClick={() => {
                                 setOpenTagMenu(null);
-                                void handleDeleteTag(t.name);
+                                handleDeleteTag(t.name);
                               }}
                               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-rose-600 hover:bg-rose-50"
                             >
@@ -1278,8 +1326,8 @@ function AuthenticatedShell({
                   tags={tags}
                   canEdit={canEditWorkspace}
                   onOpenTag={(tagName) => goScope(`/tags/${encodeURIComponent(tagName)}`)}
-                  onRenameTag={handleRenameTag}
-                  onDeleteTag={handleDeleteTag}
+                  onRequestRename={(tagName) => setRenameTagTarget(tagName)}
+                  onRequestDelete={(tagName) => handleDeleteTag(tagName)}
                 />
               }
             />
@@ -1292,6 +1340,7 @@ function AuthenticatedShell({
                   workspaces={workspaces}
                   activeWorkspace={activeWorkspace}
                   onBack={() => navigate('/bookmarks')}
+                  onOpenApiDocs={() => navigate('/api-docs')}
                   onUpdateSettings={updateSettings}
                   onWorkspaceCreated={(ws) => {
                     onSetWorkspaces((prev) => [...prev, ws]);
@@ -1310,11 +1359,23 @@ function AuthenticatedShell({
                     });
                   }}
                   onSelectWorkspace={onSelectWorkspace}
+                  onDataImported={async () => {
+                    await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
+                  }}
                   onLogout={async () => {
                     await api.logout();
                     onSetUser(null);
                     onSetWorkspaces([]);
                   }}
+                />
+              }
+            />
+            <Route
+              path="/api-docs"
+              element={
+                <ApiDocsPage
+                  activeWorkspaceId={activeWorkspace.id}
+                  onBack={() => navigate('/settings')}
                 />
               }
             />
@@ -1378,8 +1439,25 @@ function AuthenticatedShell({
           initialEditing={detailDrawer.editing}
           onClose={() => setDetailDrawer(null)}
           onUpdate={handleUpdateBookmark}
-          onDelete={(bm) => void handleDeleteBookmark(bm)}
+          onDelete={(bm) => handleDeleteBookmark(bm)}
           onToggleFavorite={(bm) => void handleToggleFavorite(bm)}
+        />
+      )}
+
+      {renameTagTarget && (
+        <RenameTagModal
+          tagName={renameTagTarget}
+          onClose={() => setRenameTagTarget(null)}
+          onRename={handleRenameTag}
+        />
+      )}
+
+      {confirmState && (
+        <ConfirmModal
+          title={confirmState.title}
+          message={confirmState.message}
+          onClose={() => setConfirmState(null)}
+          onConfirm={confirmState.onConfirm}
         />
       )}
     </div>

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Copy, ExternalLink, Globe, Plus, Trash2, Users, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { Collection, CollectionShare, Workspace } from '../types/bookmark';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface CollectionShareModalProps {
   workspaceId: string;
@@ -156,11 +157,16 @@ export function CollectionShareModal({
                 <span className="flex-1 truncate font-mono text-slate-700">{publicUrl}</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(publicUrl);
-                    setMessage('공개 링크를 복사했습니다.');
+                  onClick={async () => {
+                    const ok = await copyToClipboard(publicUrl);
+                    if (ok) {
+                      setError('');
+                      setMessage('공개 링크를 복사했습니다.');
+                    } else {
+                      setError('브라우저에서 클립보드 복사가 차단되었습니다. 링크를 직접 선택해 복사해 주세요.');
+                    }
                   }}
-                  className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 font-medium text-sky-600 shadow-2xs hover:bg-sky-50"
+                  className="inline-flex shrink-0 items-center gap-1 rounded bg-white px-2 py-1 font-medium text-sky-600 shadow-2xs hover:bg-sky-50"
                 >
                   <Copy className="h-3 w-3" />
                   복사
@@ -169,7 +175,7 @@ export function CollectionShareModal({
                   href={publicUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 font-medium text-slate-600 shadow-2xs hover:bg-slate-100"
+                  className="inline-flex shrink-0 items-center gap-1 rounded bg-white px-2 py-1 font-medium text-slate-600 shadow-2xs hover:bg-slate-100"
                 >
                   <ExternalLink className="h-3 w-3" />
                   열기
@@ -191,11 +197,11 @@ export function CollectionShareModal({
             </div>
 
             <form onSubmit={handleAddShare} className="space-y-2">
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
                 <select
                   value={targetType}
                   onChange={(e) => setTargetType(e.target.value as 'user' | 'workspace')}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs sm:col-span-4"
                 >
                   <option value="user">사용자 (이메일)</option>
                   <option value="workspace">소속 (Workspace)</option>
@@ -208,13 +214,13 @@ export function CollectionShareModal({
                     value={targetEmail}
                     onChange={(e) => setTargetEmail(e.target.value)}
                     placeholder="user@example.com"
-                    className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-sky-500"
+                    className="min-w-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-sky-500 sm:col-span-8"
                   />
                 ) : (
                   <select
                     value={targetWorkspaceId}
                     onChange={(e) => setTargetWorkspaceId(e.target.value)}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                    className="min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs sm:col-span-8"
                   >
                     {shareableWorkspaces.length === 0 ? (
                       <option value="">공유 가능한 다른 소속 없음</option>
@@ -227,23 +233,25 @@ export function CollectionShareModal({
                     )}
                   </select>
                 )}
+              </div>
 
+              <div className="flex items-center justify-end gap-2">
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value as 'viewer' | 'editor')}
                   className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
                 >
-                  <option value="viewer">열람만</option>
+                  <option value="viewer">열람만 가능</option>
                   <option value="editor">편집 가능</option>
                 </select>
 
                 <button
                   type="submit"
                   disabled={targetType === 'workspace' && !targetWorkspaceId}
-                  className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  공유
+                  공유 추가
                 </button>
               </div>
             </form>

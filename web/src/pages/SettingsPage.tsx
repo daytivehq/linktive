@@ -1,17 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
   Copy,
+  Database,
+  Download,
   KeyRound,
   LogOut,
   Pencil,
   Plus,
   Trash2,
+  Upload,
   Users,
   X,
 } from 'lucide-react';
 import { api } from '../api/client';
+import { ConfirmModal } from '../components/ConfirmModal';
 import type {
   APIKeyItem,
   ClickAction,
@@ -21,6 +26,7 @@ import type {
   Workspace,
   WorkspaceMember,
 } from '../types/bookmark';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface SettingsPageProps {
   user: User;
@@ -28,11 +34,13 @@ interface SettingsPageProps {
   workspaces: Workspace[];
   activeWorkspace: Workspace;
   onBack: () => void;
+  onOpenApiDocs: () => void;
   onUpdateSettings: (next: UserSettings) => Promise<void>;
   onWorkspaceCreated: (ws: Workspace) => void;
   onWorkspaceUpdated: (ws: Workspace) => void;
   onWorkspaceDeleted: (wsID: string) => void;
   onSelectWorkspace: (wsID: string) => void;
+  onDataImported: () => Promise<void>;
   onLogout: () => Promise<void>;
 }
 
@@ -42,19 +50,22 @@ export function SettingsPage({
   workspaces,
   activeWorkspace,
   onBack,
+  onOpenApiDocs,
   onUpdateSettings,
   onWorkspaceCreated,
   onWorkspaceUpdated,
   onWorkspaceDeleted,
   onSelectWorkspace,
+  onDataImported,
   onLogout,
 }: SettingsPageProps) {
-  const [tab, setTab] = useState<'general' | 'workspaces' | 'apikeys'>('general');
+  const [tab, setTab] = useState<'general' | 'workspaces' | 'apikeys' | 'transfer'>('general');
   const [clickAction, setClickAction] = useState<ClickAction>(settings.click_action);
 
   const [newWsName, setNewWsName] = useState('');
   const [editingWsId, setEditingWsId] = useState<string | null>(null);
   const [editingWsName, setEditingWsName] = useState('');
+  const [deleteTargetWs, setDeleteTargetWs] = useState<Workspace | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<MemberRole>('editor');
@@ -62,6 +73,12 @@ export function SettingsPage({
   const [apiKeys, setApiKeys] = useState<APIKeyItem[]>([]);
   const [newKeyName, setNewKeyName] = useState('');
   const [createdToken, setCreatedToken] = useState('');
+
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importFormat, setImportFormat] = useState('auto');
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [importing, setImporting] = useState(false);
+
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -125,25 +142,6 @@ export function SettingsPage({
     }
   };
 
-  const handleDeleteWorkspace = async (ws: Workspace) => {
-    if (
-      !window.confirm(
-        `"${ws.name}" 소속을 삭제할까요? 이 소속에 저장된 컬렉션과 북마크도 함께 삭제됩니다.`,
-      )
-    ) {
-      return;
-    }
-    setError('');
-    setMessage('');
-    try {
-      await api.deleteWorkspace(ws.id);
-      onWorkspaceDeleted(ws.id);
-      setMessage(`"${ws.name}" 소속을 삭제했습니다.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '소속 삭제 실패');
-    }
-  };
-
   const handleInviteMember = async (e: FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
@@ -192,6 +190,34 @@ export function SettingsPage({
     }
   };
 
+  const handleImportSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!importFile) {
+      setError('가져올 파일을 선택해 주세요.');
+      return;
+    }
+    setError('');
+    setMessage('');
+    setImporting(true);
+    try {
+      const res = await api.importWorkspace(
+        activeWorkspace.id,
+        importFile,
+        importFormat,
+        skipDuplicates,
+      );
+      setImportFile(null);
+      await onDataImported();
+      setMessage(
+        `[${res.format}] 가져오기 완료 — 북마크 ${res.imported}개 추가, ${res.skipped}개 중복 건너뜀, 컬렉션 ${res.created_collections}개 생성 (실패 ${res.failed}개)`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '가져오기에 실패했습니다.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-6 flex items-center justify-between">
@@ -221,7 +247,7 @@ export function SettingsPage({
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6">
-        <div className="mb-5 flex gap-4 border-b border-slate-200 text-sm">
+        <div className="mb-5 flex flex-wrap gap-4 border-b border-slate-200 text-sm">
           <button
             type="button"
             onClick={() => setTab('general')}
@@ -240,6 +266,16 @@ export function SettingsPage({
           >
             <Users className="h-4 w-4" />
             <span>소속·공유</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('transfer')}
+            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
+              tab === 'transfer' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
+            }`}
+          >
+            <Database className="h-4 w-4" />
+            <span>가져오기·내보내기</span>
           </button>
           <button
             type="button"
@@ -312,7 +348,6 @@ export function SettingsPage({
               </button>
             </form>
 
-            {/* Workspace List with Rename / Delete */}
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2.5 text-xs font-semibold text-slate-600">내 소속 목록</div>
               <div className="space-y-1.5 text-sm">
@@ -386,7 +421,7 @@ export function SettingsPage({
                               {ws.type === 'shared' && (
                                 <button
                                   type="button"
-                                  onClick={() => void handleDeleteWorkspace(ws)}
+                                  onClick={() => setDeleteTargetWs(ws)}
                                   title="소속 삭제"
                                   className="rounded p-1 text-slate-400 hover:bg-white hover:text-rose-600"
                                 >
@@ -403,7 +438,6 @@ export function SettingsPage({
               </div>
             </div>
 
-            {/* Active Workspace Members */}
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2.5 text-xs font-semibold text-slate-600">
                 선택된 소속 멤버: {activeWorkspace.name}
@@ -465,8 +499,118 @@ export function SettingsPage({
           </div>
         )}
 
+        {tab === 'transfer' && (
+          <div className="space-y-6">
+            <section className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-1 text-sm font-semibold text-slate-800">
+                내보내기 (현재 소속: {activeWorkspace.name})
+              </div>
+              <p className="mb-3 text-xs text-slate-500">
+                전체 백업용 JSON 또는 브라우저·다른 서비스 호환용 HTML/CSV로 내려받을 수 있습니다.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={api.exportWorkspaceUrl(activeWorkspace.id, 'json')}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  <Download className="h-3.5 w-3.5 text-sky-600" />
+                  <span>linktive JSON 백업</span>
+                </a>
+                <a
+                  href={api.exportWorkspaceUrl(activeWorkspace.id, 'html')}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  <Download className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>표준 북마크 HTML</span>
+                </a>
+                <a
+                  href={api.exportWorkspaceUrl(activeWorkspace.id, 'csv')}
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  <Download className="h-3.5 w-3.5 text-indigo-600" />
+                  <span>CSV (Excel/Raindrop 호환)</span>
+                </a>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-1 text-sm font-semibold text-slate-800">가져오기</div>
+              <p className="mb-3 text-xs text-slate-500">
+                linktive JSON, 브라우저/Raindrop HTML, Raindrop.io CSV, Linkwarden JSON, Karakeep
+                JSON 파일을 지원합니다.
+              </p>
+              <form onSubmit={handleImportSubmit} className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-700">파일 형식</label>
+                    <select
+                      value={importFormat}
+                      onChange={(e) => setImportFormat(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
+                    >
+                      <option value="auto">자동 감지 (추천)</option>
+                      <option value="linktive_json">linktive JSON</option>
+                      <option value="html">브라우저 / Raindrop HTML</option>
+                      <option value="raindrop_csv">Raindrop.io CSV</option>
+                      <option value="linkwarden_json">Linkwarden JSON</option>
+                      <option value="karakeep_json">Karakeep JSON</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-700">파일 선택</label>
+                    <input
+                      type="file"
+                      accept=".json,.html,.htm,.csv"
+                      onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                      className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={skipDuplicates}
+                    onChange={(e) => setSkipDuplicates(e.target.checked)}
+                  />
+                  <span>이미 저장된 동일 URL은 중복 건너뛰기</span>
+                </label>
+
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={importing || !importFile}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>{importing ? '가져오는 중...' : '가져오기 실행'}</span>
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )}
+
         {tab === 'apikeys' && (
           <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs">
+              <span className="text-slate-600">
+                Bearer 토큰으로 REST API를 호출할 수 있습니다.
+              </span>
+              <button
+                type="button"
+                onClick={onOpenApiDocs}
+                className="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline"
+              >
+                <span>REST API 활용 매뉴얼</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
             <form onSubmit={handleCreateKey} className="flex gap-2">
               <input
                 type="text"
@@ -492,7 +636,11 @@ export function SettingsPage({
                   <span className="truncate">{createdToken}</span>
                   <button
                     type="button"
-                    onClick={() => void navigator.clipboard.writeText(createdToken)}
+                    onClick={async () => {
+                      const ok = await copyToClipboard(createdToken);
+                      if (ok) setMessage('API 토큰을 복사했습니다.');
+                      else setError('복사에 실패했습니다. 직접 선택해 복사해 주세요.');
+                    }}
                     className="inline-flex shrink-0 items-center gap-1 text-sky-600"
                   >
                     <Copy className="h-3.5 w-3.5" />
@@ -538,6 +686,20 @@ export function SettingsPage({
           <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>
         )}
       </div>
+
+      {deleteTargetWs && (
+        <ConfirmModal
+          title="소속 삭제"
+          message={`"${deleteTargetWs.name}" 소속을 삭제할까요? 이 소속에 저장된 컬렉션과 북마크도 함께 삭제됩니다.`}
+          confirmLabel="삭제"
+          onClose={() => setDeleteTargetWs(null)}
+          onConfirm={async () => {
+            await api.deleteWorkspace(deleteTargetWs.id);
+            onWorkspaceDeleted(deleteTargetWs.id);
+            setMessage(`"${deleteTargetWs.name}" 소속을 삭제했습니다.`);
+          }}
+        />
+      )}
     </div>
   );
 }
