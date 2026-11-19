@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
+	"github.com/linktive/linktive/internal/authutil"
 	"github.com/linktive/linktive/internal/store/sqlite"
 )
 
@@ -253,6 +255,124 @@ func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
 	}, cookies1)
 	if impRec.Code != http.StatusOK || !strings.Contains(impRec.Body.String(), `"skipped":2`) {
 		t.Fatalf("import duplicate check failed: %d %s", impRec.Code, impRec.Body.String())
+	}
+}
+
+func TestProfile2FAAndAdminFlow(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	handler := NewRouter(st, fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}})
+
+	// First registered user becomes admin.
+	reg1 := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "admin@linktive.local", "name": "관리자", "password": "password123",
+	}, nil)
+	if reg1.Code != http.StatusCreated || !strings.Contains(reg1.Body.String(), `"is_admin":true`) {
+		t.Fatalf("expected first user to be admin: %d %s", reg1.Code, reg1.Body.String())
+	}
+	adminCookies := reg1.Result().Cookies()
+
+	// Disable open registration.
+	rec := doJSON(t, handler, http.MethodPatch, "/api/v1/admin/settings", map[string]bool{"registration_enabled": false}, adminCookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable registration failed: %d", rec.Code)
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "blocked@linktive.local", "name": "차단", "password": "password123",
+	}, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when registration disabled, got %d", rec.Code)
+	}
+
+	// Admin creates invite -> invited user registers as non-admin.
+	invRec := doJSON(t, handler, http.MethodPost, "/api/v1/admin/invites", map[string]int{"expires_hours": 24}, adminCookies)
+	if invRec.Code != http.StatusCreated {
+		t.Fatalf("create invite failed: %d", invRec.Code)
+	}
+	var inv struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(invRec.Body.Bytes(), &inv)
+
+	cfgRec := doJSON(t, handler, http.MethodGet, "/api/v1/auth/config?invite="+inv.Token, nil, nil)
+	if cfgRec.Code != http.StatusOK || !strings.Contains(cfgRec.Body.String(), `"invite_valid":true`) {
+		t.Fatalf("expected valid invite config, got %d %s", cfgRec.Code, cfgRec.Body.String())
+	}
+
+	reg2 := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "member@linktive.local", "name": "회원", "password": "password123", "invite_token": inv.Token,
+	}, nil)
+	if reg2.Code != http.StatusCreated || !strings.Contains(reg2.Body.String(), `"is_admin":false`) {
+		t.Fatalf("invited registration failed: %d %s", reg2.Code, reg2.Body.String())
+	}
+	var r2 struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	_ = json.Unmarshal(reg2.Body.Bytes(), &r2)
+	memberCookies := reg2.Result().Cookies()
+
+	// Non-admin cannot access admin endpoints.
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/admin/users", nil, memberCookies)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin, got %d", rec.Code)
+	}
+
+	// Profile & password update + 2FA setup/enable/login.
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/auth/profile", map[string]string{
+		"email": "member2@linktive.local", "name": "새닉네임",
+	}, memberCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "새닉네임") {
+		t.Fatalf("profile update failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/auth/password", map[string]string{
+		"current_password": "password123", "new_password": "newpassword456",
+	}, memberCookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("password update failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	setupRec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", nil, memberCookies)
+	if setupRec.Code != http.StatusOK {
+		t.Fatalf("2fa setup failed: %d", setupRec.Code)
+	}
+	var setup struct {
+		Secret string `json:"secret"`
+	}
+	_ = json.Unmarshal(setupRec.Body.Bytes(), &setup)
+	code, err := authutil.GenerateTOTPCode(setup.Secret, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("GenerateTOTPCode failed: %v", err)
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/enable", map[string]string{"code": code}, memberCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"totp_enabled":true`) {
+		t.Fatalf("2fa enable failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Login requires 2FA step.
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"email": "member2@linktive.local", "password": "newpassword456",
+	}, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"requires_2fa":true`) {
+		t.Fatalf("expected requires_2fa=true, got %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"email": "member2@linktive.local", "password": "newpassword456", "totp_code": code,
+	}, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"member2@linktive.local"`) {
+		t.Fatalf("2fa login failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Admin deletes member account.
+	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/admin/users/"+r2.User.ID, nil, adminCookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin delete user failed: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

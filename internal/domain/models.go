@@ -50,8 +50,30 @@ type User struct {
 	Name         string    `json:"name"`
 	PasswordHash string    `json:"-"`
 	SettingsJSON string    `json:"settings_json"`
+	IsAdmin      bool      `json:"is_admin"`
+	TOTPEnabled  bool      `json:"totp_enabled"`
+	TOTPSecret   string    `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// AuthConfig exposes public registration and invite status.
+type AuthConfig struct {
+	RegistrationEnabled bool `json:"registration_enabled"`
+	HasUsers            bool `json:"has_users"`
+	InviteValid         bool `json:"invite_valid,omitempty"`
+}
+
+// UserInvite represents an admin-issued single-use registration invite link.
+type UserInvite struct {
+	ID          string     `json:"id"`
+	Token       string     `json:"token"`
+	CreatedBy   string     `json:"created_by"`
+	UsedBy      *string    `json:"used_by,omitempty"`
+	UsedByEmail string     `json:"used_by_email,omitempty"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	UsedAt      *time.Time `json:"used_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // Session represents an authenticated browser session.

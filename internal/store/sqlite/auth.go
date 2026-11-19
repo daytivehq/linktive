@@ -13,9 +13,41 @@ import (
 
 const defaultSettingsJSON = `{"click_action":"new_tab","view_mode":"list","visible_fields":{"thumbnail":true,"title":true,"description":true,"note":true,"tags":true,"createdAt":true}}`
 
-// CreateUserWithPersonalWorkspace registers a user and provisions their default personal workspace.
+// GetAuthConfig reports whether public registration is enabled, whether users exist, and invite validity.
+func (s *Store) GetAuthConfig(ctx context.Context, inviteToken string) (domain.AuthConfig, error) {
+	var cfg domain.AuthConfig
+	var userCount int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
+		return cfg, err
+	}
+	cfg.HasUsers = userCount > 0
+	cfg.RegistrationEnabled = s.isRegistrationEnabled(ctx)
+
+	trimmedInvite := strings.TrimSpace(inviteToken)
+	if trimmedInvite != "" {
+		nowStr := formatTime(time.Now().UTC())
+		var count int
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT COUNT(1) FROM user_invites
+			WHERE token = ? AND used_at IS NULL AND expires_at > ?
+		`, trimmedInvite, nowStr).Scan(&count); err != nil {
+			return cfg, err
+		}
+		cfg.InviteValid = count > 0
+	}
+	return cfg, nil
+}
+
+// CreateUserWithPersonalWorkspace registers a user without an invite token.
 func (s *Store) CreateUserWithPersonalWorkspace(ctx context.Context, email, name, passwordHash string) (domain.User, domain.Workspace, error) {
+	return s.RegisterUser(ctx, email, name, passwordHash, "")
+}
+
+// RegisterUser creates a user and their personal workspace, promoting the very first user to admin
+// and enforcing registration policy / invite tokens for subsequent users.
+func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash, inviteToken string) (domain.User, domain.Workspace, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+	inviteToken = strings.TrimSpace(inviteToken)
 	now := time.Now().UTC()
 	nowStr := formatTime(now)
 
@@ -24,6 +56,32 @@ func (s *Store) CreateUserWithPersonalWorkspace(ctx context.Context, email, name
 		return domain.User{}, domain.Workspace{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	var userCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
+		return domain.User{}, domain.Workspace{}, err
+	}
+	isFirstUser := userCount == 0
+
+	var inviteID string
+	if inviteToken != "" {
+		err := tx.QueryRowContext(ctx, `
+			SELECT id FROM user_invites
+			WHERE token = ? AND used_at IS NULL AND expires_at > ?
+		`, inviteToken, nowStr).Scan(&inviteID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.User{}, domain.Workspace{}, store.ErrInvalidInvite
+		}
+		if err != nil {
+			return domain.User{}, domain.Workspace{}, err
+		}
+	} else if !isFirstUser {
+		var val string
+		_ = tx.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = 'registration_enabled'`).Scan(&val)
+		if val == "false" {
+			return domain.User{}, domain.Workspace{}, store.ErrRegistrationDisabled
+		}
+	}
 
 	var existing int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM users WHERE email = ?`, email).Scan(&existing); err != nil {
@@ -39,14 +97,24 @@ func (s *Store) CreateUserWithPersonalWorkspace(ctx context.Context, email, name
 		Name:         strings.TrimSpace(name),
 		PasswordHash: passwordHash,
 		SettingsJSON: defaultSettingsJSON,
+		IsAdmin:      isFirstUser,
+		TOTPEnabled:  false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO users (id, email, name, password_hash, settings_json, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, user.ID, user.Email, user.Name, user.PasswordHash, user.SettingsJSON, nowStr, nowStr); err != nil {
+		INSERT INTO users (id, email, name, password_hash, settings_json, is_admin, totp_enabled, totp_secret, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, '', ?, ?)
+	`, user.ID, user.Email, user.Name, user.PasswordHash, user.SettingsJSON, boolToInt(user.IsAdmin), nowStr, nowStr); err != nil {
 		return domain.User{}, domain.Workspace{}, err
+	}
+
+	if inviteID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE user_invites SET used_by = ?, used_at = ? WHERE id = ?
+		`, user.ID, nowStr, inviteID); err != nil {
+			return domain.User{}, domain.Workspace{}, err
+		}
 	}
 
 	ws := domain.Workspace{
@@ -82,7 +150,7 @@ func (s *Store) CreateUserWithPersonalWorkspace(ctx context.Context, email, name
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (domain.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	return s.scanUser(s.db.QueryRowContext(ctx, `
-		SELECT id, email, name, password_hash, settings_json, created_at, updated_at
+		SELECT id, email, name, password_hash, settings_json, is_admin, totp_enabled, totp_secret, created_at, updated_at
 		FROM users WHERE email = ?
 	`, email))
 }
@@ -90,9 +158,91 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (domain.User, 
 // GetUserByID finds a user by ID.
 func (s *Store) GetUserByID(ctx context.Context, id string) (domain.User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx, `
-		SELECT id, email, name, password_hash, settings_json, created_at, updated_at
+		SELECT id, email, name, password_hash, settings_json, is_admin, totp_enabled, totp_secret, created_at, updated_at
 		FROM users WHERE id = ?
 	`, id))
+}
+
+// UpdateUserProfile updates a user's email and display name.
+func (s *Store) UpdateUserProfile(ctx context.Context, userID, email, name string) (domain.User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	name = strings.TrimSpace(name)
+
+	var conflict int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM users WHERE email = ? AND id != ?`, email, userID).Scan(&conflict); err != nil {
+		return domain.User{}, err
+	}
+	if conflict > 0 {
+		return domain.User{}, store.ErrAlreadyExists
+	}
+
+	nowStr := formatTime(time.Now().UTC())
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE users SET email = ?, name = ?, updated_at = ? WHERE id = ?
+	`, email, name, nowStr, userID)
+	if err != nil {
+		return domain.User{}, err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return domain.User{}, store.ErrNotFound
+	}
+	return s.GetUserByID(ctx, userID)
+}
+
+// UpdateUserPassword replaces a user's hashed password.
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?
+	`, passwordHash, formatTime(time.Now().UTC()), userID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+// SetUserTOTPSecret saves a pending TOTP secret before confirmation.
+func (s *Store) SetUserTOTPSecret(ctx context.Context, userID, secret string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE users SET totp_secret = ?, updated_at = ? WHERE id = ?
+	`, secret, formatTime(time.Now().UTC()), userID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+// EnableUserTOTP activates 2FA for a user.
+func (s *Store) EnableUserTOTP(ctx context.Context, userID string) (domain.User, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE users SET totp_enabled = 1, updated_at = ? WHERE id = ?
+	`, formatTime(time.Now().UTC()), userID)
+	if err != nil {
+		return domain.User{}, err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return domain.User{}, store.ErrNotFound
+	}
+	return s.GetUserByID(ctx, userID)
+}
+
+// DisableUserTOTP clears 2FA secret and disables 2FA for a user.
+func (s *Store) DisableUserTOTP(ctx context.Context, userID string) (domain.User, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE users SET totp_enabled = 0, totp_secret = '', updated_at = ? WHERE id = ?
+	`, formatTime(time.Now().UTC()), userID)
+	if err != nil {
+		return domain.User{}, err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return domain.User{}, store.ErrNotFound
+	}
+	return s.GetUserByID(ctx, userID)
 }
 
 // UpdateUserSettings updates a user's persisted UI/click behavior settings JSON.
@@ -131,7 +281,7 @@ func (s *Store) CreateSession(ctx context.Context, userID, tokenHash string, exp
 func (s *Store) GetUserBySessionHash(ctx context.Context, tokenHash string) (domain.User, error) {
 	now := formatTime(time.Now().UTC())
 	return s.scanUser(s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.name, u.password_hash, u.settings_json, u.created_at, u.updated_at
+		SELECT u.id, u.email, u.name, u.password_hash, u.settings_json, u.is_admin, u.totp_enabled, u.totp_secret, u.created_at, u.updated_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = ? AND s.expires_at > ?
@@ -204,7 +354,7 @@ func (s *Store) DeleteAPIKey(ctx context.Context, userID, keyID string) error {
 // GetUserByAPIKeyHash resolves a bearer API key hash and updates last_used_at.
 func (s *Store) GetUserByAPIKeyHash(ctx context.Context, keyHash string) (domain.User, error) {
 	u, err := s.scanUser(s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.name, u.password_hash, u.settings_json, u.created_at, u.updated_at
+		SELECT u.id, u.email, u.name, u.password_hash, u.settings_json, u.is_admin, u.totp_enabled, u.totp_secret, u.created_at, u.updated_at
 		FROM api_keys k
 		JOIN users u ON u.id = k.user_id
 		WHERE k.key_hash = ?
@@ -216,16 +366,30 @@ func (s *Store) GetUserByAPIKeyHash(ctx context.Context, keyHash string) (domain
 	return u, nil
 }
 
+func (s *Store) isRegistrationEnabled(ctx context.Context) bool {
+	var val string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = 'registration_enabled'`).Scan(&val); err != nil {
+		return true
+	}
+	return val != "false"
+}
+
 func (s *Store) scanUser(row *sql.Row) (domain.User, error) {
 	var u domain.User
+	var isAdmin, totpEnabled int
 	var createdAt, updatedAt string
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.SettingsJSON, &createdAt, &updatedAt)
+	err := row.Scan(
+		&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.SettingsJSON,
+		&isAdmin, &totpEnabled, &u.TOTPSecret, &createdAt, &updatedAt,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, store.ErrNotFound
 	}
 	if err != nil {
 		return domain.User{}, err
 	}
+	u.IsAdmin = isAdmin != 0
+	u.TOTPEnabled = totpEnabled != 0
 	u.CreatedAt = parseTime(createdAt)
 	u.UpdatedAt = parseTime(updatedAt)
 	return u, nil

@@ -12,8 +12,10 @@ import {
   PanelRightOpen,
   Pencil,
   Plus,
+  Shield,
   SlidersHorizontal,
   Star,
+  StickyNote,
   Trash2,
   User as UserIcon,
   Users,
@@ -42,6 +44,7 @@ import { HighlightText } from './components/HighlightText';
 import { CollectionIcon } from './components/IconPicker';
 import { RenameTagModal } from './components/RenameTagModal';
 import { SearchBar } from './components/SearchBar';
+import { AdminPage } from './pages/AdminPage';
 import { AdvancedSearchPage } from './pages/AdvancedSearchPage';
 import { ApiDocsPage } from './pages/ApiDocsPage';
 import { PublicCollectionPage } from './pages/PublicCollectionPage';
@@ -302,6 +305,8 @@ function AuthenticatedShell({
     }
     if (p === '/search') return { kind: 'search' as const, q: urlQuery };
     if (p === '/settings') return { kind: 'settings' as const };
+    if (p === '/admin') return { kind: 'admin' as const };
+    if (p === '/api-docs') return { kind: 'api-docs' as const };
     if (p === '/advanced-search') return { kind: 'advanced-search' as const };
     return { kind: 'all' as const };
   }, [location.pathname, urlQuery]);
@@ -333,6 +338,8 @@ function AuthenticatedShell({
   const refreshBookmarks = useCallback(async () => {
     if (
       routeScope.kind === 'settings' ||
+      routeScope.kind === 'admin' ||
+      routeScope.kind === 'api-docs' ||
       routeScope.kind === 'advanced-search' ||
       routeScope.kind === 'tags-index'
     ) {
@@ -929,9 +936,12 @@ function AuthenticatedShell({
                   )}
 
                   {settings.visible_fields.note && bm.note && (
-                    <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1 text-xs text-amber-800">
-                      메모: <HighlightText text={bm.note} query={urlQuery} />
-                    </p>
+                    <div className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+                      <StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      <span className="min-w-0 flex-1">
+                        <HighlightText text={bm.note} query={urlQuery} />
+                      </span>
+                    </div>
                   )}
                 </div>
 
@@ -1017,6 +1027,21 @@ function AuthenticatedShell({
             >
               <Plus className="h-4 w-4" />
               <span>사이트 추가</span>
+            </button>
+          )}
+          {user.is_admin && (
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              title="관리자 설정"
+              aria-label="관리자 설정"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
+                routeScope.kind === 'admin'
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-600'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Shield className="h-4 w-4" />
             </button>
           )}
           <button
@@ -1341,6 +1366,8 @@ function AuthenticatedShell({
                   activeWorkspace={activeWorkspace}
                   onBack={() => navigate('/bookmarks')}
                   onOpenApiDocs={() => navigate('/api-docs')}
+                  onOpenAdmin={() => navigate('/admin')}
+                  onUserUpdated={(updatedUser) => onSetUser(updatedUser)}
                   onUpdateSettings={updateSettings}
                   onWorkspaceCreated={(ws) => {
                     onSetWorkspaces((prev) => [...prev, ws]);
@@ -1368,6 +1395,12 @@ function AuthenticatedShell({
                     onSetWorkspaces([]);
                   }}
                 />
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <AdminPage currentUser={user} onBack={() => navigate('/bookmarks')} />
               }
             />
             <Route

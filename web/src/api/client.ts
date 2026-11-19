@@ -1,5 +1,6 @@
 import type {
   APIKeyItem,
+  AuthConfig,
   Bookmark,
   BulkBookmarkAction,
   Collection,
@@ -10,6 +11,7 @@ import type {
   SortOrder,
   TagSummary,
   User,
+  UserInvite,
   UserSettings,
   Workspace,
   WorkspaceMember,
@@ -51,19 +53,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string }>('/api/v1/health'),
 
+  authConfig: (invite?: string) =>
+    request<AuthConfig>(
+      `/api/v1/auth/config${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`,
+    ),
+
   me: () => request<{ user: User; workspaces: Workspace[] }>('/api/v1/auth/me'),
 
-  register: (payload: { email: string; name: string; password: string }) =>
+  register: (payload: { email: string; name: string; password: string; invite_token?: string }) =>
     request<{ user: User; workspaces: Workspace[] }>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  login: (payload: { email: string; password: string }) =>
-    request<{ user: User; workspaces: Workspace[] }>('/api/v1/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  login: (payload: { email: string; password: string; totp_code?: string }) =>
+    request<{ user?: User; workspaces?: Workspace[]; requires_2fa?: boolean }>(
+      '/api/v1/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
 
   logout: () => request<{ status: string }>('/api/v1/auth/logout', { method: 'POST' }),
 
@@ -71,6 +81,69 @@ export const api = {
     request<{ user: User }>('/api/v1/auth/settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),
+    }),
+
+  updateProfile: (payload: { email: string; name: string }) =>
+    request<{ user: User }>('/api/v1/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  updatePassword: (payload: { current_password: string; new_password: string }) =>
+    request<{ status: string }>('/api/v1/auth/password', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  setup2FA: () =>
+    request<{ secret: string; otpauth_url: string }>('/api/v1/auth/2fa/setup', {
+      method: 'POST',
+    }),
+
+  enable2FA: (code: string) =>
+    request<{ user: User }>('/api/v1/auth/2fa/enable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  disable2FA: (password: string, code: string) =>
+    request<{ user: User }>('/api/v1/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
+
+  adminGetSettings: () => request<{ registration_enabled: boolean }>('/api/v1/admin/settings'),
+
+  adminUpdateSettings: (registration_enabled: boolean) =>
+    request<{ registration_enabled: boolean }>('/api/v1/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ registration_enabled }),
+    }),
+
+  adminListUsers: () => request<{ items: User[] }>('/api/v1/admin/users'),
+
+  adminUpdateUser: (userID: string, is_admin: boolean) =>
+    request<User>(`/api/v1/admin/users/${userID}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_admin }),
+    }),
+
+  adminDeleteUser: (userID: string) =>
+    request<{ status: string }>(`/api/v1/admin/users/${userID}`, {
+      method: 'DELETE',
+    }),
+
+  adminListInvites: () => request<{ items: UserInvite[] }>('/api/v1/admin/invites'),
+
+  adminCreateInvite: (expires_hours: number) =>
+    request<UserInvite>('/api/v1/admin/invites', {
+      method: 'POST',
+      body: JSON.stringify({ expires_hours }),
+    }),
+
+  adminDeleteInvite: (inviteID: string) =>
+    request<{ status: string }>(`/api/v1/admin/invites/${inviteID}`, {
+      method: 'DELETE',
     }),
 
   listAPIKeys: () => request<{ items: APIKeyItem[] }>('/api/v1/api-keys'),

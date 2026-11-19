@@ -9,11 +9,13 @@ import (
 )
 
 var (
-	ErrNotFound         = errors.New("not found")
-	ErrAlreadyExists    = errors.New("already exists")
-	ErrDuplicateURL     = errors.New("duplicate bookmark url")
-	ErrInvalidParent    = errors.New("invalid parent collection")
-	ErrPermissionDenied = errors.New("permission denied")
+	ErrNotFound             = errors.New("not found")
+	ErrAlreadyExists        = errors.New("already exists")
+	ErrDuplicateURL         = errors.New("duplicate bookmark url")
+	ErrInvalidParent        = errors.New("invalid parent collection")
+	ErrPermissionDenied     = errors.New("permission denied")
+	ErrRegistrationDisabled = errors.New("registration is disabled")
+	ErrInvalidInvite        = errors.New("invalid or expired invite token")
 )
 
 // DuplicateURLError provides the existing bookmark when a duplicate URL is detected.
@@ -141,9 +143,16 @@ type Store interface {
 	Close() error
 
 	// Auth & Users
+	GetAuthConfig(ctx context.Context, inviteToken string) (domain.AuthConfig, error)
+	RegisterUser(ctx context.Context, email, name, passwordHash, inviteToken string) (domain.User, domain.Workspace, error)
 	CreateUserWithPersonalWorkspace(ctx context.Context, email, name, passwordHash string) (domain.User, domain.Workspace, error)
 	GetUserByEmail(ctx context.Context, email string) (domain.User, error)
 	GetUserByID(ctx context.Context, id string) (domain.User, error)
+	UpdateUserProfile(ctx context.Context, userID, email, name string) (domain.User, error)
+	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
+	SetUserTOTPSecret(ctx context.Context, userID, secret string) error
+	EnableUserTOTP(ctx context.Context, userID string) (domain.User, error)
+	DisableUserTOTP(ctx context.Context, userID string) (domain.User, error)
 	UpdateUserSettings(ctx context.Context, userID, settingsJSON string) (domain.User, error)
 	CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (domain.Session, error)
 	GetUserBySessionHash(ctx context.Context, tokenHash string) (domain.User, error)
@@ -152,6 +161,15 @@ type Store interface {
 	ListAPIKeys(ctx context.Context, userID string) ([]domain.APIKey, error)
 	DeleteAPIKey(ctx context.Context, userID, keyID string) error
 	GetUserByAPIKeyHash(ctx context.Context, keyHash string) (domain.User, error)
+
+	// Admin
+	SetRegistrationEnabled(ctx context.Context, enabled bool) error
+	ListUsers(ctx context.Context) ([]domain.User, error)
+	UpdateUserAdmin(ctx context.Context, userID string, isAdmin bool) (domain.User, error)
+	DeleteUser(ctx context.Context, userID string) error
+	CreateUserInvite(ctx context.Context, createdBy string, expiresAt time.Time) (domain.UserInvite, error)
+	ListUserInvites(ctx context.Context) ([]domain.UserInvite, error)
+	DeleteUserInvite(ctx context.Context, inviteID string) error
 
 	// Workspaces & Members
 	ListWorkspacesForUser(ctx context.Context, userID string) ([]domain.Workspace, error)

@@ -37,8 +37,27 @@ export interface User {
   email: string;
   name: string;
   settings_json: string;
+  is_admin: boolean;
+  totp_enabled: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface AuthConfig {
+  registration_enabled: boolean;
+  has_users: boolean;
+  invite_valid?: boolean;
+}
+
+export interface UserInvite {
+  id: string;
+  token: string;
+  created_by: string;
+  used_by?: string | null;
+  used_by_email?: string;
+  expires_at: string;
+  used_at?: string | null;
+  created_at: string;
 }
 
 export type WorkspaceType = 'personal' | 'shared';

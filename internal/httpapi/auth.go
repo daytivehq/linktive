@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/linktive/linktive/internal/authutil"
 	"github.com/linktive/linktive/internal/domain"
 	"github.com/linktive/linktive/internal/store"
 	"golang.org/x/crypto/bcrypt"
@@ -61,11 +62,22 @@ func (a *apiHandler) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+func (a *apiHandler) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	invite := r.URL.Query().Get("invite")
+	cfg, err := a.store.GetAuthConfig(r.Context(), invite)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load auth config")
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
 func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email    string `json:"email"`
-		Name     string `json:"name"`
-		Password string `json:"password"`
+		Email       string `json:"email"`
+		Name        string `json:"name"`
+		Password    string `json:"password"`
+		InviteToken string `json:"invite_token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -85,7 +97,15 @@ func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ws, err := a.store.CreateUserWithPersonalWorkspace(r.Context(), req.Email, req.Name, string(hash))
+	user, ws, err := a.store.RegisterUser(r.Context(), req.Email, req.Name, string(hash), req.InviteToken)
+	if errors.Is(err, store.ErrRegistrationDisabled) {
+		writeError(w, http.StatusForbidden, "registration is currently disabled; an invite link is required")
+		return
+	}
+	if errors.Is(err, store.ErrInvalidInvite) {
+		writeError(w, http.StatusBadRequest, "invalid or expired invite link")
+		return
+	}
 	if errors.Is(err, store.ErrAlreadyExists) {
 		writeError(w, http.StatusConflict, "email already registered")
 		return
@@ -110,6 +130,7 @@ func (a *apiHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		TOTPCode string `json:"totp_code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -124,6 +145,17 @@ func (a *apiHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
 		return
+	}
+
+	if user.TOTPEnabled {
+		if strings.TrimSpace(req.TOTPCode) == "" {
+			writeJSON(w, http.StatusOK, map[string]any{"requires_2fa": true})
+			return
+		}
+		if !authutil.VerifyTOTPCode(user.TOTPSecret, req.TOTPCode, time.Now().UTC()) {
+			writeError(w, http.StatusUnauthorized, "invalid 2FA verification code")
+			return
+		}
 	}
 
 	if err := a.issueSessionCookie(w, r, user.ID); err != nil {
@@ -183,6 +215,133 @@ func (a *apiHandler) handleUpdateSettings(w http.ResponseWriter, r *http.Request
 	updated, err := a.store.UpdateUserSettings(r.Context(), user.ID, string(raw))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
+}
+
+func (a *apiHandler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	var req struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	req.Name = strings.TrimSpace(req.Name)
+	if !strings.Contains(req.Email, "@") || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "valid email and name are required")
+		return
+	}
+
+	updated, err := a.store.UpdateUserProfile(r.Context(), user.ID, req.Email, req.Name)
+	if errors.Is(err, store.ErrAlreadyExists) {
+		writeError(w, http.StatusConflict, "email already in use")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update profile")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
+}
+
+func (a *apiHandler) handleUpdatePassword(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		writeError(w, http.StatusBadRequest, "new password must be at least 6 characters")
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		return
+	}
+	if err := a.store.UpdateUserPassword(r.Context(), user.ID, string(hash)); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update password")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (a *apiHandler) handle2FASetup(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	secret, err := authutil.GenerateTOTPSecret()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate 2FA secret")
+		return
+	}
+	if err := a.store.SetUserTOTPSecret(r.Context(), user.ID, secret); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save 2FA secret")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"secret":      secret,
+		"otpauth_url": authutil.BuildOTPAuthURL("linktive", user.Email, secret),
+	})
+}
+
+func (a *apiHandler) handle2FAEnable(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if user.TOTPSecret == "" {
+		writeError(w, http.StatusBadRequest, "2FA setup has not been initiated")
+		return
+	}
+	if !authutil.VerifyTOTPCode(user.TOTPSecret, req.Code, time.Now().UTC()) {
+		writeError(w, http.StatusBadRequest, "invalid 2FA verification code")
+		return
+	}
+	updated, err := a.store.EnableUserTOTP(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to enable 2FA")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
+}
+
+func (a *apiHandler) handle2FADisable(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	var req struct {
+		Password string `json:"password"`
+		Code     string `json:"code"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		writeError(w, http.StatusUnauthorized, "password is incorrect")
+		return
+	}
+	if user.TOTPEnabled && !authutil.VerifyTOTPCode(user.TOTPSecret, req.Code, time.Now().UTC()) {
+		writeError(w, http.StatusBadRequest, "invalid 2FA verification code")
+		return
+	}
+	updated, err := a.store.DisableUserTOTP(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to disable 2FA")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": updated})

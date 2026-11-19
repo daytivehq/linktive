@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import QRCode from 'qrcode';
 import {
   ArrowLeft,
   ArrowRight,
@@ -10,8 +11,11 @@ import {
   LogOut,
   Pencil,
   Plus,
+  Shield,
+  ShieldCheck,
   Trash2,
   Upload,
+  User as UserIcon,
   Users,
   X,
 } from 'lucide-react';
@@ -35,6 +39,8 @@ interface SettingsPageProps {
   activeWorkspace: Workspace;
   onBack: () => void;
   onOpenApiDocs: () => void;
+  onOpenAdmin: () => void;
+  onUserUpdated: (user: User) => void;
   onUpdateSettings: (next: UserSettings) => Promise<void>;
   onWorkspaceCreated: (ws: Workspace) => void;
   onWorkspaceUpdated: (ws: Workspace) => void;
@@ -51,6 +57,8 @@ export function SettingsPage({
   activeWorkspace,
   onBack,
   onOpenApiDocs,
+  onOpenAdmin,
+  onUserUpdated,
   onUpdateSettings,
   onWorkspaceCreated,
   onWorkspaceUpdated,
@@ -59,9 +67,23 @@ export function SettingsPage({
   onDataImported,
   onLogout,
 }: SettingsPageProps) {
-  const [tab, setTab] = useState<'general' | 'workspaces' | 'apikeys' | 'transfer'>('general');
+  const [tab, setTab] = useState<'general' | 'account' | 'workspaces' | 'transfer' | 'apikeys'>(
+    'general',
+  );
   const [clickAction, setClickAction] = useState<ClickAction>(settings.click_action);
 
+  // Account & Security state
+  const [profileName, setProfileName] = useState(user.name);
+  const [profileEmail, setProfileEmail] = useState(user.email);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [totpSecret, setTotpSecret] = useState('');
+  const [totpQrDataUrl, setTotpQrDataUrl] = useState('');
+  const [totpEnableCode, setTotpEnableCode] = useState('');
+  const [disablePassword, setDisablePassword] = useState('');
+  const [disableCode, setDisableCode] = useState('');
+
+  // Workspaces state
   const [newWsName, setNewWsName] = useState('');
   const [editingWsId, setEditingWsId] = useState<string | null>(null);
   const [editingWsName, setEditingWsName] = useState('');
@@ -70,10 +92,12 @@ export function SettingsPage({
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<MemberRole>('editor');
 
+  // API keys state
   const [apiKeys, setApiKeys] = useState<APIKeyItem[]>([]);
   const [newKeyName, setNewKeyName] = useState('');
   const [createdToken, setCreatedToken] = useState('');
 
+  // Import/Export state
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importFormat, setImportFormat] = useState('auto');
   const [skipDuplicates, setSkipDuplicates] = useState(true);
@@ -85,6 +109,11 @@ export function SettingsPage({
   useEffect(() => {
     setClickAction(settings.click_action);
   }, [settings.click_action]);
+
+  useEffect(() => {
+    setProfileName(user.name);
+    setProfileEmail(user.email);
+  }, [user.name, user.email]);
 
   useEffect(() => {
     if (tab === 'workspaces') {
@@ -109,6 +138,83 @@ export function SettingsPage({
       setMessage('설정이 저장되었습니다.');
     } catch (err) {
       setError(err instanceof Error ? err.message : '설정 저장 실패');
+    }
+  };
+
+  const handleSaveProfile = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.updateProfile({
+        name: profileName.trim(),
+        email: profileEmail.trim(),
+      });
+      onUserUpdated(res.user);
+      setMessage('사용자 정보를 수정했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '사용자 정보 수정 실패');
+    }
+  };
+
+  const handleChangePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      await api.updatePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setMessage('비밀번호를 변경했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '비밀번호 변경 실패');
+    }
+  };
+
+  const handleStart2FASetup = async () => {
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.setup2FA();
+      setTotpSecret(res.secret);
+      const qrUrl = await QRCode.toDataURL(res.otpauth_url, { width: 180, margin: 1 });
+      setTotpQrDataUrl(qrUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '2FA 설정 준비 실패');
+    }
+  };
+
+  const handleEnable2FA = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.enable2FA(totpEnableCode.trim());
+      onUserUpdated(res.user);
+      setTotpSecret('');
+      setTotpQrDataUrl('');
+      setTotpEnableCode('');
+      setMessage('2단계 인증(2FA)이 활성화되었습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '2FA 활성화 실패');
+    }
+  };
+
+  const handleDisable2FA = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      const res = await api.disable2FA(disablePassword, disableCode.trim());
+      onUserUpdated(res.user);
+      setDisablePassword('');
+      setDisableCode('');
+      setMessage('2단계 인증(2FA)이 해제되었습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '2FA 해제 실패');
     }
   };
 
@@ -220,7 +326,7 @@ export function SettingsPage({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <button
             type="button"
@@ -233,17 +339,34 @@ export function SettingsPage({
           <h1 className="text-xl font-bold text-slate-900">설정 및 계정</h1>
           <p className="mt-0.5 text-xs text-slate-500">
             {user.name} ({user.email})
+            {user.is_admin && (
+              <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-700">
+                관리자
+              </span>
+            )}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void onLogout()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          <span>로그아웃</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {user.is_admin && (
+            <button
+              type="button"
+              onClick={onOpenAdmin}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+            >
+              <Shield className="h-3.5 w-3.5" />
+              <span>관리자 설정</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void onLogout()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span>로그아웃</span>
+          </button>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -256,6 +379,16 @@ export function SettingsPage({
             }`}
           >
             동작 설정
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('account')}
+            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
+              tab === 'account' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
+            }`}
+          >
+            <UserIcon className="h-4 w-4" />
+            <span>내 정보 · 보안</span>
           </button>
           <button
             type="button"
@@ -327,6 +460,201 @@ export function SettingsPage({
               </button>
             </div>
           </form>
+        )}
+
+        {tab === 'account' && (
+          <div className="space-y-6">
+            {/* Profile */}
+            <form onSubmit={handleSaveProfile} className="space-y-3 rounded-xl border border-slate-200 p-4">
+              <div className="text-sm font-semibold text-slate-800">기본 정보 수정</div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">닉네임</label>
+                  <input
+                    type="text"
+                    required
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">이메일</label>
+                  <input
+                    type="email"
+                    required
+                    value={profileEmail}
+                    onChange={(e) => setProfileEmail(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  className="rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
+                >
+                  정보 저장
+                </button>
+              </div>
+            </form>
+
+            {/* Password */}
+            <form onSubmit={handleChangePassword} className="space-y-3 rounded-xl border border-slate-200 p-4">
+              <div className="text-sm font-semibold text-slate-800">비밀번호 변경</div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    현재 비밀번호
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    새 비밀번호 (6자 이상)
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
+                >
+                  비밀번호 변경
+                </button>
+              </div>
+            </form>
+
+            {/* 2FA TOTP */}
+            <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck
+                    className={`h-4 w-4 ${user.totp_enabled ? 'text-emerald-600' : 'text-slate-400'}`}
+                  />
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800">
+                      2단계 인증 (TOTP 2FA)
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      1Password, Google Authenticator 등 OTP 앱으로 로그인을 보호합니다.
+                    </div>
+                  </div>
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    user.totp_enabled
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  {user.totp_enabled ? '사용 중' : '미사용'}
+                </span>
+              </div>
+
+              {!user.totp_enabled ? (
+                !totpSecret ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleStart2FASetup()}
+                    className="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
+                  >
+                    2FA 설정 시작
+                  </button>
+                ) : (
+                  <form onSubmit={handleEnable2FA} className="space-y-3 rounded-lg bg-slate-50 p-3.5">
+                    <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+                      {totpQrDataUrl && (
+                        <img
+                          src={totpQrDataUrl}
+                          alt="2FA QR Code"
+                          className="h-36 w-36 rounded-lg border border-slate-200 bg-white p-1"
+                        />
+                      )}
+                      <div className="space-y-2 text-xs text-slate-600">
+                        <p>인증 앱으로 QR 코드를 스캔하거나 아래 시크릿 키를 직접 입력하세요.</p>
+                        <div className="flex items-center gap-2 rounded bg-white px-2.5 py-1.5 font-mono text-slate-800">
+                          <span>{totpSecret}</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const ok = await copyToClipboard(totpSecret);
+                              if (ok) setMessage('2FA 시크릿 키를 복사했습니다.');
+                            }}
+                            className="text-sky-600 hover:underline"
+                          >
+                            복사
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            required
+                            maxLength={6}
+                            value={totpEnableCode}
+                            onChange={(e) => setTotpEnableCode(e.target.value.replace(/\D/g, ''))}
+                            placeholder="앱의 6자리 코드 입력"
+                            className="w-40 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-sky-500"
+                          />
+                          <button
+                            type="submit"
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                          >
+                            확인 후 활성화
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </form>
+                )
+              ) : (
+                <form onSubmit={handleDisable2FA} className="space-y-2 rounded-lg bg-rose-50/50 p-3">
+                  <div className="text-xs font-medium text-slate-700">2FA 해제 확인</div>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="password"
+                      required
+                      value={disablePassword}
+                      onChange={(e) => setDisablePassword(e.target.value)}
+                      placeholder="현재 비밀번호"
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-sky-500"
+                    />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      required
+                      maxLength={6}
+                      value={disableCode}
+                      onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="OTP 6자리 코드"
+                      className="w-32 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-sky-500"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
+                    >
+                      2FA 해제
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
         )}
 
         {tab === 'workspaces' && (

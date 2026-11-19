@@ -27,6 +27,7 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/health", h.handleHealth)
 
+		api.Get("/auth/config", h.handleAuthConfig)
 		api.Post("/auth/register", h.handleRegister)
 		api.Post("/auth/login", h.handleLogin)
 		api.Post("/auth/logout", h.handleLogout)
@@ -37,6 +38,23 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 
 			authed.Get("/auth/me", h.handleMe)
 			authed.Patch("/auth/settings", h.handleUpdateSettings)
+			authed.Patch("/auth/profile", h.handleUpdateProfile)
+			authed.Patch("/auth/password", h.handleUpdatePassword)
+			authed.Post("/auth/2fa/setup", h.handle2FASetup)
+			authed.Post("/auth/2fa/enable", h.handle2FAEnable)
+			authed.Post("/auth/2fa/disable", h.handle2FADisable)
+
+			authed.Route("/admin", func(adm chi.Router) {
+				adm.Use(h.requireAdmin)
+				adm.Get("/settings", h.handleAdminGetSettings)
+				adm.Patch("/settings", h.handleAdminUpdateSettings)
+				adm.Get("/users", h.handleAdminListUsers)
+				adm.Patch("/users/{userID}", h.handleAdminUpdateUser)
+				adm.Delete("/users/{userID}", h.handleAdminDeleteUser)
+				adm.Get("/invites", h.handleAdminListInvites)
+				adm.Post("/invites", h.handleAdminCreateInvite)
+				adm.Delete("/invites/{inviteID}", h.handleAdminDeleteInvite)
+			})
 
 			authed.Get("/api-keys", h.handleListAPIKeys)
 			authed.Post("/api-keys", h.handleCreateAPIKey)
