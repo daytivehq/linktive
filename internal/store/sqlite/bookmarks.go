@@ -522,18 +522,65 @@ func (s *Store) ListTags(ctx context.Context, workspaceID string) ([]domain.TagS
 	return items, rows.Err()
 }
 
-// GetWorkspaceStats returns sidebar counters for all, favorite, and uncollected bookmarks.
+// GetWorkspaceStats returns sidebar counters for all, favorite, uncollected, and broken bookmarks.
 func (s *Store) GetWorkspaceStats(ctx context.Context, workspaceID string) (domain.WorkspaceStats, error) {
 	var stats domain.WorkspaceStats
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
 			COUNT(1),
 			COALESCE(SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN collection_id IS NULL THEN 1 ELSE 0 END), 0)
+			COALESCE(SUM(CASE WHEN collection_id IS NULL THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN link_status = 'broken' THEN 1 ELSE 0 END), 0)
 		FROM bookmarks
 		WHERE workspace_id = ?
-	`, workspaceID).Scan(&stats.AllCount, &stats.FavoriteCount, &stats.UncollectedCount)
+	`, workspaceID).Scan(&stats.AllCount, &stats.FavoriteCount, &stats.UncollectedCount, &stats.BrokenCount)
 	return stats, err
+}
+
+// UpdateBookmarkLinkStatus updates link reachability status and timestamp for a bookmark.
+func (s *Store) UpdateBookmarkLinkStatus(ctx context.Context, workspaceID, bookmarkID string, status domain.LinkStatus, checkedAt time.Time) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE bookmarks
+		SET link_status = ?, last_checked_at = ?, updated_at = ?
+		WHERE id = ? AND workspace_id = ?
+	`, string(status), formatTime(checkedAt), formatTime(checkedAt), bookmarkID, workspaceID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+// ListWorkspaceBookmarksForCheck returns bookmarks in a workspace queued for link checking.
+func (s *Store) ListWorkspaceBookmarksForCheck(ctx context.Context, workspaceID string, onlyUnchecked bool) ([]domain.Bookmark, error) {
+	query := `
+		SELECT id, workspace_id, collection_id, created_by, url, normalized_url, domain,
+		       title, description, note, favicon_url, thumbnail_url, is_favorite, link_status,
+		       last_checked_at, created_at, updated_at
+		FROM bookmarks
+		WHERE workspace_id = ?`
+	if onlyUnchecked {
+		query += ` AND link_status = 'unknown'`
+	}
+	query += ` ORDER BY COALESCE(last_checked_at, '') ASC, created_at DESC LIMIT 500`
+
+	rows, err := s.db.QueryContext(ctx, query, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := make([]domain.Bookmark, 0)
+	for rows.Next() {
+		bm, err := scanBookmarkRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, bm)
+	}
+	return items, rows.Err()
 }
 
 // SearchBookmarks executes Korean hybrid search (FTS5 trigram for 3+ chars, compact substring/chosung for 1-2 chars)

@@ -6,9 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/linktive/linktive/internal/backup"
 	"github.com/linktive/linktive/internal/config"
 	"github.com/linktive/linktive/internal/httpapi"
 	"github.com/linktive/linktive/internal/store/sqlite"
@@ -31,6 +33,9 @@ func main() {
 		}
 	}()
 
+	backupMgr := backup.NewManager(st, filepath.Join(cfg.DataDir, "backups"))
+	go backupMgr.StartScheduler(ctx)
+
 	staticFS, err := webembed.DistFS()
 	if err != nil {
 		log.Fatalf("failed to load embedded frontend: %v", err)
@@ -38,7 +43,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.NewRouter(st, staticFS),
+		Handler:           httpapi.NewRouter(st, staticFS, httpapi.WithBackupManager(backupMgr)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

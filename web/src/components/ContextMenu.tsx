@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export interface ContextMenuItem {
   label: string;
@@ -17,18 +18,15 @@ interface ContextMenuProps {
 }
 
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+  useEscapeKey(onClose);
+
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
     const onMouseDown = () => onClose();
     const onScroll = () => onClose();
 
-    window.addEventListener('keydown', onKeyDown);
     window.addEventListener('mousedown', onMouseDown);
     window.addEventListener('scroll', onScroll, true);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('scroll', onScroll, true);
     };

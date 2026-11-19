@@ -201,6 +201,7 @@ type WorkspaceStats struct {
 	AllCount         int `json:"all_count"`
 	FavoriteCount    int `json:"favorite_count"`
 	UncollectedCount int `json:"uncollected_count"`
+	BrokenCount      int `json:"broken_count"`
 }
 
 // SavedFilter stores a reusable search/filter expression in the sidebar.
@@ -213,4 +214,28 @@ type SavedFilter struct {
 	Color       string    `json:"color"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// AutoBackupSettings configures scheduled SQLite snapshots on the server.
+type AutoBackupSettings struct {
+	Enabled       bool       `json:"enabled"`
+	IntervalHours int        `json:"interval_hours"`
+	KeepCount     int        `json:"keep_count"`
+	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
+}
+
+// BackupFileInfo describes a single stored database backup artifact.
+type BackupFileInfo struct {
+	Filename  string    `json:"filename"`
+	SizeBytes int64     `json:"size_bytes"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// LinkCheckSummary reports results of a workspace-wide link health check.
+type LinkCheckSummary struct {
+	Checked      int        `json:"checked"`
+	OKCount      int        `json:"ok_count"`
+	BrokenCount  int        `json:"broken_count"`
+	BlockedCount int        `json:"blocked_count"`
+	Items        []Bookmark `json:"items"`
 }

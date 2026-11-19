@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ExternalLink, Pencil, Star, Trash2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ExternalLink,
+  FolderOpen,
+  Pencil,
+  RefreshCw,
+  ShieldAlert,
+  Star,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
 import type { Bookmark, Collection, Workspace } from '../types/bookmark';
 import { FaviconBadge } from './FaviconBadge';
@@ -25,12 +37,12 @@ interface BookmarkDetailDrawerProps {
   }) => Promise<void>;
   onDelete: (bm: Bookmark) => void;
   onToggleFavorite: (bm: Bookmark) => void;
+  onCheckLink?: (bm: Bookmark) => Promise<void>;
 }
 
 export function BookmarkDetailDrawer({
   bookmark,
   collections,
-  workspaces,
   activeWorkspaceId,
   canEdit,
   initialEditing = false,
@@ -38,8 +50,11 @@ export function BookmarkDetailDrawer({
   onUpdate,
   onDelete,
   onToggleFavorite,
+  onCheckLink,
 }: BookmarkDetailDrawerProps) {
   useScrollLock();
+  useEscapeKey(onClose);
+
   const [editing, setEditing] = useState(initialEditing);
   const [url, setUrl] = useState(bookmark.url);
   const [title, setTitle] = useState(bookmark.title);
@@ -47,11 +62,17 @@ export function BookmarkDetailDrawer({
   const [note, setNote] = useState(bookmark.note);
   const [collectionId, setCollectionId] = useState(bookmark.collection_id ?? '');
   const [tagsText, setTagsText] = useState(bookmark.tags.join(', '));
-  const [isFavorite, setIsFavorite] = useState(bookmark.is_favorite);
-  const [targetWorkspaceId, setTargetWorkspaceId] = useState(activeWorkspaceId);
+  const [checkingLink, setCheckingLink] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Only synchronize editing mode when opening a different bookmark or explicitly changing initialEditing.
+  useEffect(() => {
+    setEditing(initialEditing);
+    setError('');
+  }, [bookmark.id, initialEditing]);
+
+  // Synchronize draft fields when bookmark data updates (without overriding local editing state).
   useEffect(() => {
     setUrl(bookmark.url);
     setTitle(bookmark.title);
@@ -59,30 +80,23 @@ export function BookmarkDetailDrawer({
     setNote(bookmark.note);
     setCollectionId(bookmark.collection_id ?? '');
     setTagsText(bookmark.tags.join(', '));
-    setIsFavorite(bookmark.is_favorite);
-    setTargetWorkspaceId(activeWorkspaceId);
-    setEditing(initialEditing);
-    setError('');
-  }, [bookmark, activeWorkspaceId, initialEditing]);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [bookmark, activeWorkspaceId]);
 
   const sortedCollections = useMemo(
     () => [...collections].sort((a, b) => a.name.localeCompare(b.name, 'ko')),
     [collections],
   );
-  const writableWorkspaces = useMemo(
-    () => workspaces.filter((ws) => ws.role === 'owner' || ws.role === 'editor'),
-    [workspaces],
-  );
   const currentCollection = collections.find((c) => c.id === bookmark.collection_id);
-  const currentWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
+
+  const resetDraft = () => {
+    setUrl(bookmark.url);
+    setTitle(bookmark.title);
+    setDescription(bookmark.description);
+    setNote(bookmark.note);
+    setCollectionId(bookmark.collection_id ?? '');
+    setTagsText(bookmark.tags.join(', '));
+    setError('');
+  };
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
@@ -101,15 +115,23 @@ export function BookmarkDetailDrawer({
         note: note.trim(),
         collection_id: collectionId || null,
         tags,
-        is_favorite: isFavorite,
-        target_workspace_id:
-          targetWorkspaceId !== activeWorkspaceId ? targetWorkspaceId : undefined,
+        is_favorite: bookmark.is_favorite,
       });
       setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '수정에 실패했습니다.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRunLinkCheck = async () => {
+    if (!onCheckLink || checkingLink) return;
+    setCheckingLink(true);
+    try {
+      await onCheckLink(bookmark);
+    } finally {
+      setCheckingLink(false);
     }
   };
 
@@ -141,82 +163,48 @@ export function BookmarkDetailDrawer({
 
         {editing ? (
           <form onSubmit={handleSave} className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 text-sm sm:p-6">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">URL</label>
-                <input
-                  type="text"
-                  required
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">제목</label>
-                <input
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 text-sm sm:p-6">
+              <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">컬렉션</label>
-                  <select
-                    value={collectionId}
-                    onChange={(e) => setCollectionId(e.target.value)}
-                    disabled={targetWorkspaceId !== activeWorkspaceId}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100"
-                  >
-                    <option value="">미분류</option>
-                    {sortedCollections.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">
-                    태그 (쉼표로 구분)
-                  </label>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-500">제목</label>
                   <input
                     type="text"
-                    value={tagsText}
-                    onChange={(e) => setTagsText(e.target.value)}
-                    placeholder="세금, 회계, 문서"
+                    required
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-500">URL</label>
+                  <input
+                    type="text"
+                    required
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
                   />
                 </div>
               </div>
 
-              {writableWorkspaces.length > 1 && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">
-                    소속(워크스페이스) 이동
-                  </label>
-                  <select
-                    value={targetWorkspaceId}
-                    onChange={(e) => setTargetWorkspaceId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
-                  >
-                    {writableWorkspaces.map((ws) => (
-                      <option key={ws.id} value={ws.id}>
-                        {ws.name} ({ws.type === 'personal' ? '개인' : '공유'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-500">컬렉션</label>
+                <select
+                  value={collectionId}
+                  onChange={(e) => setCollectionId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
+                >
+                  <option value="">미분류</option>
+                  {sortedCollections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">설명</label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-500">설명</label>
                 <textarea
                   rows={3}
                   value={description}
@@ -226,7 +214,7 @@ export function BookmarkDetailDrawer({
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">메모</label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-500">메모</label>
                 <textarea
                   rows={3}
                   value={note}
@@ -236,26 +224,35 @@ export function BookmarkDetailDrawer({
                 />
               </div>
 
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-500">
+                  태그 (쉼표로 구분)
+                </label>
                 <input
-                  type="checkbox"
-                  checked={isFavorite}
-                  onChange={(e) => setIsFavorite(e.target.checked)}
+                  type="text"
+                  value={tagsText}
+                  onChange={(e) => setTagsText(e.target.value)}
+                  placeholder="세금, 회계, 문서"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
                 />
-                <span>즐겨찾기에 추가</span>
-              </label>
+              </div>
+
+              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-400">
+                <span>추가일: {bookmark.created_at.slice(0, 10)}</span>
+                <span>수정일: {bookmark.updated_at.slice(0, 10)}</span>
+              </div>
 
               {error && (
                 <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-3.5">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3.5 sm:px-6">
               <button
                 type="button"
                 onClick={() => {
+                  resetDraft();
                   setEditing(false);
-                  setError('');
                 }}
                 className="rounded-lg border border-slate-200 px-3.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
               >
@@ -286,31 +283,46 @@ export function BookmarkDetailDrawer({
                     <span>{bookmark.url}</span>
                     <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                   </a>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    {bookmark.link_status === 'ok' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
+                        <CheckCircle2 className="h-3 w-3" />
+                        링크 정상
+                      </span>
+                    )}
+                    {bookmark.link_status === 'broken' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 font-medium text-rose-700">
+                        <AlertTriangle className="h-3 w-3" />
+                        손상된 링크
+                      </span>
+                    )}
+                    {bookmark.link_status === 'blocked' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+                        <ShieldAlert className="h-3 w-3" />
+                        접근 제한(차단)
+                      </span>
+                    )}
+                    {onCheckLink && canEdit && (
+                      <button
+                        type="button"
+                        disabled={checkingLink}
+                        onClick={() => void handleRunLinkCheck()}
+                        title="링크 연결 상태 확인"
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${checkingLink ? 'animate-spin' : ''}`} />
+                        <span>{checkingLink ? '확인 중...' : '링크 상태 확인'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-600 sm:grid-cols-2">
-                <div>
-                  <span className="text-slate-400">도메인:</span> {bookmark.domain}
-                </div>
-                <div>
-                  <span className="text-slate-400">소속:</span> {currentWorkspace?.name ?? '-'}
-                </div>
-                <div>
-                  <span className="text-slate-400">컬렉션:</span>{' '}
-                  {currentCollection ? currentCollection.name : '미분류'}
-                </div>
-                <div>
-                  <span className="text-slate-400">즐겨찾기:</span>{' '}
-                  {bookmark.is_favorite ? '등록됨' : '일반'}
-                </div>
-                <div>
-                  <span className="text-slate-400">추가일:</span>{' '}
-                  {bookmark.created_at.slice(0, 10)}
-                </div>
-                <div>
-                  <span className="text-slate-400">수정일:</span>{' '}
-                  {bookmark.updated_at.slice(0, 10)}
+              <div>
+                <div className="mb-1.5 text-xs font-semibold text-slate-500">컬렉션</div>
+                <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3.5 py-2.5 text-slate-700">
+                  <FolderOpen className="h-4 w-4 text-slate-400" />
+                  <span>{currentCollection ? currentCollection.name : '미분류'}</span>
                 </div>
               </div>
 
@@ -345,9 +357,14 @@ export function BookmarkDetailDrawer({
                   </div>
                 )}
               </div>
+
+              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-400">
+                <span>추가일: {bookmark.created_at.slice(0, 10)}</span>
+                <span>수정일: {bookmark.updated_at.slice(0, 10)}</span>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between border-t border-slate-200 px-6 py-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-4 py-3.5 sm:px-6">
               <div className="flex items-center gap-2">
                 {canEdit && (
                   <>
@@ -360,7 +377,7 @@ export function BookmarkDetailDrawer({
                           : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      <Star className="h-3.5 w-3.5" />
+                      <Star className="h-3.5 w-3.5" fill={bookmark.is_favorite ? 'currentColor' : 'none'} />
                       <span>{bookmark.is_favorite ? '즐겨찾기 해제' : '즐겨찾기'}</span>
                     </button>
                     <button

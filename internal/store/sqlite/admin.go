@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -211,4 +212,57 @@ func (s *Store) DeleteUserInvite(ctx context.Context, inviteID string) error {
 		return store.ErrNotFound
 	}
 	return nil
+}
+
+// GetBackupSettings returns automatic backup configuration from app_settings with sensible defaults.
+func (s *Store) GetBackupSettings(ctx context.Context) (domain.AutoBackupSettings, error) {
+	cfg := domain.AutoBackupSettings{
+		Enabled:       true,
+		IntervalHours: 24,
+		KeepCount:     7,
+	}
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = 'auto_backup'`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return cfg, nil
+	}
+	if err != nil {
+		return cfg, err
+	}
+	if unmarshalErr := json.Unmarshal([]byte(raw), &cfg); unmarshalErr != nil {
+		return domain.AutoBackupSettings{Enabled: true, IntervalHours: 24, KeepCount: 7}, nil
+	}
+	if cfg.IntervalHours <= 0 {
+		cfg.IntervalHours = 24
+	}
+	if cfg.KeepCount <= 0 {
+		cfg.KeepCount = 7
+	}
+	return cfg, nil
+}
+
+// SaveBackupSettings persists automatic backup settings into app_settings.
+func (s *Store) SaveBackupSettings(ctx context.Context, cfg domain.AutoBackupSettings) error {
+	if cfg.IntervalHours <= 0 {
+		cfg.IntervalHours = 24
+	}
+	if cfg.KeepCount <= 0 {
+		cfg.KeepCount = 7
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO app_settings (key, value, updated_at)
+		VALUES ('auto_backup', ?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+	`, string(b), formatTime(time.Now().UTC()))
+	return err
+}
+
+// BackupTo creates a consistent online SQLite snapshot at destPath using VACUUM INTO.
+func (s *Store) BackupTo(ctx context.Context, destPath string) error {
+	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, destPath)
+	return err
 }

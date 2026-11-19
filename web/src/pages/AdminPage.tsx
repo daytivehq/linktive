@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Copy,
+  Database,
+  Download,
+  HardDrive,
   Link2,
+  Play,
   Plus,
   Shield,
   ShieldOff,
@@ -12,7 +16,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { ConfirmModal } from '../components/ConfirmModal';
-import type { User, UserInvite } from '../types/bookmark';
+import type { AutoBackupSettings, BackupFileInfo, User, UserInvite } from '../types/bookmark';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface AdminPageProps {
@@ -25,6 +29,14 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [invites, setInvites] = useState<UserInvite[]>([]);
   const [expiresHours, setExpiresHours] = useState(72);
+  const [backupSettings, setBackupSettings] = useState<AutoBackupSettings>({
+    enabled: true,
+    interval_hours: 24,
+    keep_count: 7,
+  });
+  const [backups, setBackups] = useState<BackupFileInfo[]>([]);
+  const [runningBackup, setRunningBackup] = useState(false);
+  const [deleteTargetBackup, setDeleteTargetBackup] = useState<BackupFileInfo | null>(null);
   const [deleteTargetUser, setDeleteTargetUser] = useState<User | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -35,11 +47,14 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       api.adminGetSettings(),
       api.adminListUsers(),
       api.adminListInvites(),
+      api.adminListBackups(),
     ])
-      .then(([cfg, usersRes, invitesRes]) => {
+      .then(([cfg, usersRes, invitesRes, backupRes]) => {
         setRegistrationEnabled(cfg.registration_enabled);
         setUsers(usersRes.items);
         setInvites(invitesRes.items);
+        setBackupSettings(backupRes.settings);
+        setBackups(backupRes.items);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : '관리자 정보를 불러오지 못했습니다.');
@@ -113,6 +128,45 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : '초대 링크 삭제 실패');
     }
+  };
+
+  const handleSaveBackupSettings = async (next: AutoBackupSettings) => {
+    setError('');
+    setMessage('');
+    try {
+      const updated = await api.adminUpdateBackupSettings({
+        enabled: next.enabled,
+        interval_hours: next.interval_hours,
+        keep_count: next.keep_count,
+      });
+      setBackupSettings(updated);
+      setMessage('자동 백업 설정을 저장했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '백업 설정 저장 실패');
+    }
+  };
+
+  const handleRunBackupNow = async () => {
+    setError('');
+    setMessage('');
+    setRunningBackup(true);
+    try {
+      const info = await api.adminRunBackup();
+      const refreshed = await api.adminListBackups();
+      setBackupSettings(refreshed.settings);
+      setBackups(refreshed.items);
+      setMessage(`백업 파일(${info.filename})을 생성했습니다.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '백업 실행 실패');
+    } finally {
+      setRunningBackup(false);
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
   return (
@@ -345,6 +399,146 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
           <span>최소 1명의 관리자는 항상 유지됩니다.</span>
         </div>
       </section>
+
+      {/* Auto Backups */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Database className="h-4 w-4 text-emerald-600" />
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">자동 데이터베이스 백업</h2>
+              <p className="text-xs text-slate-500">
+                서버의 SQLite DB 스냅샷을 <code className="text-slate-700">/data/backups</code>에
+                자동으로 저장하고 보관 개수에 따라 정리합니다.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={runningBackup}
+            onClick={() => void handleRunBackupNow()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <Play className="h-3.5 w-3.5" />
+            <span>{runningBackup ? '백업 중...' : '지금 백업 실행'}</span>
+          </button>
+        </div>
+
+        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs sm:grid-cols-3">
+          <label className="flex cursor-pointer items-center gap-2 font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={backupSettings.enabled}
+              onChange={(e) =>
+                void handleSaveBackupSettings({ ...backupSettings, enabled: e.target.checked })
+              }
+            />
+            <span>자동 백업 활성화</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-slate-600">
+            <span className="shrink-0">백업 주기</span>
+            <select
+              value={backupSettings.interval_hours}
+              onChange={(e) =>
+                void handleSaveBackupSettings({
+                  ...backupSettings,
+                  interval_hours: Number(e.target.value),
+                })
+              }
+              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800"
+            >
+              <option value={6}>6시간마다</option>
+              <option value={12}>12시간마다</option>
+              <option value={24}>24시간(매일)</option>
+              <option value={168}>7일(매주)</option>
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2 text-slate-600">
+            <span className="shrink-0">최대 보관</span>
+            <select
+              value={backupSettings.keep_count}
+              onChange={(e) =>
+                void handleSaveBackupSettings({
+                  ...backupSettings,
+                  keep_count: Number(e.target.value),
+                })
+              }
+              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800"
+            >
+              <option value={3}>최근 3개</option>
+              <option value={7}>최근 7개</option>
+              <option value={14}>최근 14개</option>
+              <option value={30}>최근 30개</option>
+            </select>
+          </label>
+        </div>
+
+        {backupSettings.last_run_at && (
+          <p className="text-[11px] text-slate-400">
+            최근 백업 시각: {new Date(backupSettings.last_run_at).toLocaleString('ko-KR')}
+          </p>
+        )}
+
+        <div className="space-y-2 text-xs">
+          {backups.length === 0 ? (
+            <p className="text-slate-400">저장된 백업 파일이 없습니다.</p>
+          ) : (
+            backups.map((b) => (
+              <div
+                key={b.filename}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 px-3.5 py-2.5"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <HardDrive className="h-4 w-4 shrink-0 text-slate-400" />
+                  <div className="min-w-0">
+                    <div className="truncate font-mono font-medium text-slate-800">
+                      {b.filename}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {formatBytes(b.size_bytes)} · {new Date(b.created_at).toLocaleString('ko-KR')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <a
+                    href={api.adminDownloadBackupUrl(b.filename)}
+                    download={b.filename}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    <Download className="h-3 w-3" />
+                    <span>다운로드</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTargetBackup(b)}
+                    title="백업 파일 삭제"
+                    aria-label="백업 파일 삭제"
+                    className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-rose-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {deleteTargetBackup && (
+        <ConfirmModal
+          title="백업 파일 삭제"
+          message={`"${deleteTargetBackup.filename}" 백업 파일을 삭제할까요?`}
+          confirmLabel="삭제"
+          onClose={() => setDeleteTargetBackup(null)}
+          onConfirm={async () => {
+            await api.adminDeleteBackup(deleteTargetBackup.filename);
+            setBackups((prev) => prev.filter((item) => item.filename !== deleteTargetBackup.filename));
+            setMessage(`${deleteTargetBackup.filename} 백업을 삭제했습니다.`);
+          }}
+        />
+      )}
 
       {deleteTargetUser && (
         <ConfirmModal

@@ -201,11 +201,24 @@ type Store interface {
 	UpdateBookmark(ctx context.Context, input UpdateBookmarkInput) (domain.Bookmark, error)
 	DeleteBookmark(ctx context.Context, workspaceID, bookmarkID string) error
 	BulkBookmarks(ctx context.Context, input BulkBookmarkInput) (int, error)
+	UpdateBookmarkLinkStatus(ctx context.Context, workspaceID, bookmarkID string, status domain.LinkStatus, checkedAt time.Time) error
+	ListWorkspaceBookmarksForCheck(ctx context.Context, workspaceID string, onlyUnchecked bool) ([]domain.Bookmark, error)
 	ListTags(ctx context.Context, workspaceID string) ([]domain.TagSummary, error)
 	RenameTag(ctx context.Context, workspaceID, oldName, newName string) error
 	DeleteTag(ctx context.Context, workspaceID, tagName string) error
 	GetWorkspaceStats(ctx context.Context, workspaceID string) (domain.WorkspaceStats, error)
 	SearchBookmarks(ctx context.Context, query SearchQuery) (SearchResult, error)
+
+	// Saved Filters
+	ListSavedFilters(ctx context.Context, workspaceID string) ([]domain.SavedFilter, error)
+	CreateSavedFilter(ctx context.Context, workspaceID, name, query, icon, color string) (domain.SavedFilter, error)
+	UpdateSavedFilter(ctx context.Context, workspaceID, filterID, name, query, icon, color string) (domain.SavedFilter, error)
+	DeleteSavedFilter(ctx context.Context, workspaceID, filterID string) error
+
+	// Backups
+	GetBackupSettings(ctx context.Context) (domain.AutoBackupSettings, error)
+	SaveBackupSettings(ctx context.Context, cfg domain.AutoBackupSettings) error
+	BackupTo(ctx context.Context, destPath string) error
 }
 
 // SearchProvider abstracts bookmark full-text and Korean substring search.

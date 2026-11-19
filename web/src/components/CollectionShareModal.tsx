@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Copy, ExternalLink, Globe, Plus, Trash2, Users, X } from 'lucide-react';
 import { api } from '../api/client';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
 import type { Collection, CollectionShare, Workspace } from '../types/bookmark';
 import { copyToClipboard } from '../utils/clipboard';
@@ -42,13 +43,7 @@ export function CollectionShareModal({
     }
   }, [shareableWorkspaces, targetWorkspaceId]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  useEscapeKey(onClose);
 
   useEffect(() => {
     void api

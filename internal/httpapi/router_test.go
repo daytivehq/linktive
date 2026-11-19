@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/linktive/linktive/internal/authutil"
+	"github.com/linktive/linktive/internal/backup"
 	"github.com/linktive/linktive/internal/store/sqlite"
 )
 
@@ -407,6 +408,134 @@ func TestExtensionCORSPreflightAndHeaders(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("expected no Access-Control-Allow-Origin for non-extension origin, got %q", got)
+	}
+}
+
+func TestSavedFiltersLinkCheckAndAdminBackups(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	backupMgr := backup.NewManager(st, t.TempDir())
+	handler := NewRouter(st, fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}}, WithBackupManager(backupMgr))
+
+	// Register first user (admin).
+	reg := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "v02@linktive.local", "name": "운영자", "password": "password123",
+	}, nil)
+	if reg.Code != http.StatusCreated {
+		t.Fatalf("register failed: %d %s", reg.Code, reg.Body.String())
+	}
+	cookies := reg.Result().Cookies()
+
+	var regPayload struct {
+		Workspaces []struct {
+			ID string `json:"id"`
+		} `json:"workspaces"`
+	}
+	_ = json.Unmarshal(reg.Body.Bytes(), &regPayload)
+	wsID := regPayload.Workspaces[0].ID
+
+	// Saved Filters CRUD.
+	rec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/filters", map[string]string{
+		"name":  "중요 세금",
+		"query": "tags:세금 is:favorite",
+		"icon":  "filter",
+		"color": "#0284c7",
+	}, cookies)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create saved filter failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var createdFilter struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &createdFilter)
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/filters", nil, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "중요 세금") {
+		t.Fatalf("list saved filters failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/workspaces/"+wsID+"/filters/"+createdFilter.ID, map[string]string{
+		"name":  "수정된 필터",
+		"query": "is:broken",
+		"icon":  "alert",
+		"color": "#e11d48",
+	}, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "수정된 필터") {
+		t.Fatalf("update saved filter failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Link check against a local mock HTTP server (200 OK & 404 Not Found).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/missing" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><title>Test Page</title></html>"))
+	}))
+	defer srv.Close()
+
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/bookmarks", map[string]any{
+		"url": srv.URL + "/ok", "title": "정상 링크",
+	}, cookies)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create ok bookmark failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/bookmarks", map[string]any{
+		"url": srv.URL + "/missing", "title": "깨진 링크",
+	}, cookies)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create broken bookmark failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/links/check", map[string]any{
+		"only_unchecked": false,
+	}, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"broken_count":1`) || !strings.Contains(rec.Body.String(), `"ok_count":1`) {
+		t.Fatalf("check workspace links failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks?link_status=broken", nil, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "깨진 링크") || strings.Contains(rec.Body.String(), "정상 링크") {
+		t.Fatalf("filter broken links failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/stats", nil, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"broken_count":1`) {
+		t.Fatalf("expected broken_count=1 in stats: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Admin backups run/list/delete.
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/admin/backups/run", nil, cookies)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("run backup failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var backupInfo struct {
+		Filename string `json:"filename"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &backupInfo)
+	if backupInfo.Filename == "" {
+		t.Fatalf("expected backup filename in response")
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/admin/backups", nil, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), backupInfo.Filename) {
+		t.Fatalf("list backups failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/admin/backups/"+backupInfo.Filename, nil, cookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete backup failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+wsID+"/filters/"+createdFilter.ID, nil, cookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete saved filter failed: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

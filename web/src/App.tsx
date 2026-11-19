@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Bookmark as BookmarkIcon,
+  BookmarkPlus,
   Check,
   CheckSquare,
   ChevronDown,
   ChevronRight,
   Copy,
   ExternalLink,
+  Filter,
   FolderOpen,
   FolderPlus,
   Hash,
   Inbox,
   Layers,
   LayoutGrid,
+  Link2Off,
   List,
   LogOut,
   Menu,
@@ -20,9 +24,11 @@ import {
   PanelRightOpen,
   Pencil,
   Plus,
+  RefreshCw,
   Settings,
   Share2,
   Shield,
+  ShieldAlert,
   SlidersHorizontal,
   Star,
   StickyNote,
@@ -39,6 +45,7 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import { api } from './api/client';
+import { useEscapeKey } from './hooks/useEscapeKey';
 import { useScrollLock } from './hooks/useScrollLock';
 import { AddBookmarkModal } from './components/AddBookmarkModal';
 import { AuthScreen } from './components/AuthScreen';
@@ -56,6 +63,7 @@ import { FaviconBadge } from './components/FaviconBadge';
 import { HighlightText } from './components/HighlightText';
 import { CollectionIcon } from './components/IconPicker';
 import { RenameTagModal } from './components/RenameTagModal';
+import { SavedFilterModal } from './components/SavedFilterModal';
 import { SearchBar } from './components/SearchBar';
 import { AdminPage } from './pages/AdminPage';
 import { AdvancedSearchPage } from './pages/AdvancedSearchPage';
@@ -69,6 +77,8 @@ import {
   type Bookmark,
   type BulkBookmarkAction,
   type Collection,
+  type LinkStatus,
+  type SavedFilter,
   type SharedCollectionView,
   type SortOrder,
   type TagSummary,
@@ -178,6 +188,7 @@ function AuthenticatedShell({
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [sharedCollections, setSharedCollections] = useState<SharedCollectionView[]>([]);
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [activeSharedCollection, setActiveSharedCollection] =
     useState<SharedCollectionView | null>(null);
   const [tags, setTags] = useState<TagSummary[]>([]);
@@ -185,10 +196,14 @@ function AuthenticatedShell({
     all_count: 0,
     favorite_count: 0,
     uncollected_count: 0,
+    broken_count: 0,
   });
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [totalBookmarks, setTotalBookmarks] = useState(0);
   const [loadingBookmarks, setLoadingBookmarks] = useState(false);
+  const [brokenStatusTab, setBrokenStatusTab] = useState<'broken' | 'blocked'>('broken');
+  const [checkingLinks, setCheckingLinks] = useState(false);
+  const [linkCheckNotice, setLinkCheckNotice] = useState('');
 
   const [sortOrder, setSortOrder] = useState<SortOrder>('relevance');
   const [showFieldMenu, setShowFieldMenu] = useState(false);
@@ -198,6 +213,7 @@ function AuthenticatedShell({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [openTagMenu, setOpenTagMenu] = useState<string | null>(null);
+  const [openFilterMenu, setOpenFilterMenu] = useState<string | null>(null);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [detailDrawer, setDetailDrawer] = useState<{
@@ -209,6 +225,11 @@ function AuthenticatedShell({
     editing: Collection | null;
     initialParentId: string | null;
   }>({ open: false, editing: null, initialParentId: null });
+  const [savedFilterModal, setSavedFilterModal] = useState<{
+    open: boolean;
+    editing: SavedFilter | null;
+    initialQuery: string;
+  }>({ open: false, editing: null, initialQuery: '' });
   const [shareModalCollection, setShareModalCollection] = useState<Collection | null>(null);
   const [renameTagTarget, setRenameTagTarget] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<{
@@ -228,6 +249,13 @@ function AuthenticatedShell({
       return true;
     }
   });
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('linktive_sidebar_filters') !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const [tagsOpen, setTagsOpen] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('linktive_sidebar_tags') !== 'false';
@@ -236,6 +264,17 @@ function AuthenticatedShell({
     }
   });
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const scrollTimersRef = useRef<WeakMap<HTMLElement, number>>(new WeakMap());
+
+  const handlePaneScroll = useCallback((el: HTMLElement) => {
+    el.classList.add('is-scrolling');
+    const prev = scrollTimersRef.current.get(el);
+    if (prev) window.clearTimeout(prev);
+    const timer = window.setTimeout(() => {
+      el.classList.remove('is-scrolling');
+    }, 900);
+    scrollTimersRef.current.set(el, timer);
+  }, []);
 
   const [sidebarDropTarget, setSidebarDropTarget] = useState<'uncollected' | 'favorites' | null>(
     null,
@@ -246,6 +285,7 @@ function AuthenticatedShell({
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useScrollLock(mobileSidebarOpen);
+  useEscapeKey(() => setMobileSidebarOpen(false), mobileSidebarOpen);
 
   const urlQuery = location.pathname === '/search' ? (searchParams.get('q') ?? '') : '';
   const [searchInput, setSearchInput] = useState(urlQuery);
@@ -283,16 +323,9 @@ function AuthenticatedShell({
     setMobileSidebarOpen(false);
     setUserMenuOpen(false);
     setWorkspacePickerOpen(false);
+    setOpenFilterMenu(null);
+    setLinkCheckNotice('');
   }, [location.pathname, activeWorkspace.id]);
-
-  useEffect(() => {
-    if (!mobileSidebarOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMobileSidebarOpen(false);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [mobileSidebarOpen]);
 
   // Debounce search input -> navigate to /search?q=...
   useEffect(() => {
@@ -311,11 +344,12 @@ function AuthenticatedShell({
   }, [searchInput, urlQuery, location.pathname, navigate]);
 
   useEffect(() => {
-    if (!showFieldMenu && !openTagMenu && !userMenuOpen) return;
+    if (!showFieldMenu && !openTagMenu && !openFilterMenu && !userMenuOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowFieldMenu(false);
         setOpenTagMenu(null);
+        setOpenFilterMenu(null);
         setUserMenuOpen(false);
         setWorkspacePickerOpen(false);
       }
@@ -326,6 +360,9 @@ function AuthenticatedShell({
       }
       if (openTagMenu) {
         setOpenTagMenu(null);
+      }
+      if (openFilterMenu) {
+        setOpenFilterMenu(null);
       }
       if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
@@ -338,7 +375,7 @@ function AuthenticatedShell({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('mousedown', onMouseDown);
     };
-  }, [showFieldMenu, openTagMenu, userMenuOpen]);
+  }, [showFieldMenu, openTagMenu, openFilterMenu, userMenuOpen]);
 
   const settings = useMemo(() => parseUserSettings(user.settings_json), [user.settings_json]);
 
@@ -347,6 +384,7 @@ function AuthenticatedShell({
     const p = location.pathname;
     if (p === '/favorites') return { kind: 'favorites' as const };
     if (p === '/uncollected') return { kind: 'uncollected' as const };
+    if (p === '/broken-links') return { kind: 'broken-links' as const };
     if (p === '/tags') return { kind: 'tags-index' as const };
     if (p.startsWith('/collections/')) {
       return { kind: 'collection' as const, collectionId: decodeURIComponent(p.slice(13)) };
@@ -356,6 +394,9 @@ function AuthenticatedShell({
         kind: 'shared-collection' as const,
         collectionId: decodeURIComponent(p.slice(20)),
       };
+    }
+    if (p.startsWith('/filters/')) {
+      return { kind: 'filter' as const, filterId: decodeURIComponent(p.slice(9)) };
     }
     if (p.startsWith('/tags/')) {
       return { kind: 'tag' as const, tagName: decodeURIComponent(p.slice(6)) };
@@ -379,17 +420,24 @@ function AuthenticatedShell({
       ? collections.find((c) => c.id === routeScope.collectionId)
       : undefined;
 
+  const activeSavedFilter =
+    routeScope.kind === 'filter'
+      ? savedFilters.find((f) => f.id === routeScope.filterId)
+      : undefined;
+
   const refreshSidebar = useCallback(async (wsId: string) => {
-    const [colRes, tagRes, statsRes, sharedRes] = await Promise.all([
+    const [colRes, tagRes, statsRes, sharedRes, filterRes] = await Promise.all([
       api.listCollections(wsId),
       api.listTags(wsId),
       api.getStats(wsId),
       api.listSharedCollections(),
+      api.listSavedFilters(wsId),
     ]);
     setCollections(colRes.items);
     setTags(tagRes.items);
     setStats(statsRes);
     setSharedCollections(sharedRes.items);
+    setSavedFilters(filterRes.items);
   }, []);
 
   const refreshBookmarks = useCallback(async () => {
@@ -400,6 +448,11 @@ function AuthenticatedShell({
       routeScope.kind === 'advanced-search' ||
       routeScope.kind === 'tags-index'
     ) {
+      return;
+    }
+    if (routeScope.kind === 'filter' && !activeSavedFilter) {
+      setBookmarks([]);
+      setTotalBookmarks(0);
       return;
     }
     setLoadingBookmarks(true);
@@ -416,7 +469,12 @@ function AuthenticatedShell({
 
       setActiveSharedCollection(null);
       const res = await api.listBookmarks(activeWorkspace.id, {
-        q: routeScope.kind === 'search' ? routeScope.q : undefined,
+        q:
+          routeScope.kind === 'search'
+            ? routeScope.q
+            : routeScope.kind === 'filter'
+              ? activeSavedFilter?.query
+              : undefined,
         collection_id:
           routeScope.kind === 'collection'
             ? routeScope.collectionId
@@ -427,6 +485,8 @@ function AuthenticatedShell({
           routeScope.kind === 'collection' ? settings.include_subcollections : undefined,
         favorite: routeScope.kind === 'favorites' ? true : undefined,
         tag: routeScope.kind === 'tag' ? routeScope.tagName : undefined,
+        link_status:
+          routeScope.kind === 'broken-links' ? (brokenStatusTab as LinkStatus) : undefined,
         sort: sortOrder,
         limit: 100,
       });
@@ -435,7 +495,14 @@ function AuthenticatedShell({
     } finally {
       setLoadingBookmarks(false);
     }
-  }, [activeWorkspace.id, routeScope, sortOrder, settings.include_subcollections]);
+  }, [
+    activeWorkspace.id,
+    routeScope,
+    activeSavedFilter,
+    brokenStatusTab,
+    sortOrder,
+    settings.include_subcollections,
+  ]);
 
   useEffect(() => {
     void refreshSidebar(activeWorkspace.id);
@@ -607,9 +674,62 @@ function AuthenticatedShell({
             is_favorite: !bm.is_favorite,
           });
     if (detailDrawer?.bookmark.id === bm.id) {
-      setDetailDrawer({ bookmark: updated, editing: detailDrawer.editing });
+      setDetailDrawer({ ...detailDrawer, bookmark: updated });
     }
     await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
+  };
+
+  const handleCheckBookmarkLink = async (bm: Bookmark) => {
+    const updated = await api.checkBookmarkLink(activeWorkspace.id, bm.id);
+    if (detailDrawer?.bookmark.id === bm.id) {
+      setDetailDrawer((prev) => (prev ? { ...prev, bookmark: updated } : null));
+    }
+    await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
+  };
+
+  const handleCheckWorkspaceLinks = async (onlyUnchecked = false) => {
+    if (checkingLinks) return;
+    setCheckingLinks(true);
+    setLinkCheckNotice('');
+    try {
+      const res = await api.checkWorkspaceLinks(activeWorkspace.id, onlyUnchecked);
+      setLinkCheckNotice(
+        `총 ${res.checked}개 확인 완료 — 정상 ${res.ok_count}개, 손상 ${res.broken_count}개, 접근 제한 ${res.blocked_count}개`,
+      );
+      await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
+    } finally {
+      setCheckingLinks(false);
+    }
+  };
+
+  const handleSaveSavedFilter = async (payload: {
+    id?: string;
+    name: string;
+    query: string;
+    icon: string;
+    color: string;
+  }) => {
+    if (payload.id) {
+      await api.updateSavedFilter(activeWorkspace.id, payload.id, payload);
+    } else {
+      const created = await api.createSavedFilter(activeWorkspace.id, payload);
+      navigate(`/filters/${encodeURIComponent(created.id)}`);
+    }
+    await refreshSidebar(activeWorkspace.id);
+  };
+
+  const handleDeleteSavedFilter = (f: SavedFilter) => {
+    setConfirmState({
+      title: '저장된 필터 삭제',
+      message: `"${f.name}" 필터를 삭제할까요?`,
+      onConfirm: async () => {
+        await api.deleteSavedFilter(activeWorkspace.id, f.id);
+        if (routeScope.kind === 'filter' && routeScope.filterId === f.id) {
+          navigate('/bookmarks');
+        }
+        await refreshSidebar(activeWorkspace.id);
+      },
+    });
   };
 
   const handleBulkExecute = async (payload: {
@@ -775,13 +895,138 @@ function AuthenticatedShell({
         </div>
       )}
 
+      {routeScope.kind === 'filter' && activeSavedFilter && (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-white"
+              style={{ backgroundColor: activeSavedFilter.color || '#0284c7' }}
+            >
+              <Filter className="h-4 w-4" />
+            </span>
+            <h1 className="text-xl font-bold text-slate-900">{activeSavedFilter.name}</h1>
+            <code className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-600">
+              {activeSavedFilter.query}
+            </code>
+          </div>
+          {canEditWorkspace && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() =>
+                  setSavedFilterModal({
+                    open: true,
+                    editing: activeSavedFilter,
+                    initialQuery: activeSavedFilter.query,
+                  })
+                }
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                <span>수정</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteSavedFilter(activeSavedFilter)}
+                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>삭제</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {routeScope.kind === 'broken-links' && (
+        <div className="mb-5 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Link2Off className="h-5 w-5 text-rose-500" />
+              <h1 className="text-xl font-bold text-slate-900">손상된 링크</h1>
+            </div>
+            {canEditWorkspace && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={checkingLinks}
+                  onClick={() => void handleCheckWorkspaceLinks(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${checkingLinks ? 'animate-spin' : ''}`} />
+                  <span>미검사만 확인</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={checkingLinks}
+                  onClick={() => void handleCheckWorkspaceLinks(false)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${checkingLinks ? 'animate-spin' : ''}`} />
+                  <span>{checkingLinks ? '검사 중...' : '전체 링크 검사'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setBrokenStatusTab('broken')}
+              className={`rounded-full px-3 py-1 font-medium ${
+                brokenStatusTab === 'broken'
+                  ? 'bg-rose-100 text-rose-800'
+                  : 'bg-white text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              손상됨 (404/연결 오류)
+            </button>
+            <button
+              type="button"
+              onClick={() => setBrokenStatusTab('blocked')}
+              className={`rounded-full px-3 py-1 font-medium ${
+                brokenStatusTab === 'blocked'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-white text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              접근 제한 (401/403/429)
+            </button>
+          </div>
+
+          {linkCheckNotice && (
+            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-medium text-emerald-800">
+              {linkCheckNotice}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Toolbar (no settings gear button per user request) */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-500">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
           {routeScope.kind === 'search' ? (
             <>
-              &ldquo;<strong className="text-slate-800">{routeScope.q}</strong>&rdquo; 검색 결과{' '}
-              <strong className="text-slate-800">{totalBookmarks}</strong>개
+              <span>
+                &ldquo;<strong className="text-slate-800">{routeScope.q}</strong>&rdquo; 검색 결과{' '}
+                <strong className="text-slate-800">{totalBookmarks}</strong>개
+              </span>
+              {canEditWorkspace && routeScope.q.trim() && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSavedFilterModal({
+                      open: true,
+                      editing: null,
+                      initialQuery: routeScope.q.trim(),
+                    })
+                  }
+                  className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                >
+                  <BookmarkPlus className="h-3.5 w-3.5" />
+                  <span>필터로 저장</span>
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -1012,8 +1257,22 @@ function AuthenticatedShell({
                             <HighlightText text={bm.title} query={urlQuery} />
                           </div>
                         )}
-                        <div className="truncate text-xs text-slate-400">
-                          <HighlightText text={bm.domain} query={urlQuery} />
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                          <span className="truncate">
+                            <HighlightText text={bm.domain} query={urlQuery} />
+                          </span>
+                          {bm.link_status === 'broken' && (
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              손상됨
+                            </span>
+                          )}
+                          {bm.link_status === 'blocked' && (
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                              <ShieldAlert className="h-2.5 w-2.5" />
+                              접근제한
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1273,6 +1532,7 @@ function AuthenticatedShell({
         {/* Left Sidebar */}
         <aside
           data-scroll-pane
+          onScroll={(e) => handlePaneScroll(e.currentTarget)}
           className={`fixed inset-y-0 left-0 z-40 w-72 overflow-y-auto overscroll-contain border-r border-slate-200 bg-white p-3 transition-transform duration-200 md:static md:z-auto md:block md:h-full md:w-64 md:shrink-0 md:translate-x-0 md:overflow-y-auto ${
             mobileSidebarOpen
               ? 'translate-x-0 shadow-2xl'
@@ -1379,6 +1639,24 @@ function AuthenticatedShell({
                 </span>
                 <span className="text-xs text-slate-400">{stats.uncollected_count}</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => goScope('/broken-links')}
+                className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 font-medium ${
+                  routeScope.kind === 'broken-links'
+                    ? 'bg-rose-50 text-rose-700'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <Link2Off className="h-4 w-4 text-rose-500" />
+                  손상된 링크
+                </span>
+                <span className={`text-xs ${stats.broken_count > 0 ? 'font-semibold text-rose-600' : 'text-slate-400'}`}>
+                  {stats.broken_count}
+                </span>
+              </button>
             </div>
 
             {/* Collections (collapsible) */}
@@ -1397,12 +1675,13 @@ function AuthenticatedShell({
                       return next;
                     });
                   }}
-                  className="flex items-center gap-1 rounded px-1 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-700"
+                  title="컬렉션 목록 접기/펼치기"
+                  className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] font-bold tracking-tight text-slate-700 hover:text-sky-600"
                 >
                   {collectionsOpen ? (
-                    <ChevronDown className="h-3.5 w-3.5" />
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
                   ) : (
-                    <ChevronRight className="h-3.5 w-3.5" />
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
                   )}
                   <span>컬렉션</span>
                 </button>
@@ -1499,8 +1778,8 @@ function AuthenticatedShell({
             {sharedCollections.length > 0 && (
               <div>
                 <div className="mb-1.5 flex items-center gap-1.5 px-2.5">
-                  <Users className="h-3.5 w-3.5 text-slate-400" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <Users className="h-3.5 w-3.5 text-slate-500" />
+                  <span className="text-[13px] font-bold tracking-tight text-slate-700">
                     공유받은 컬렉션
                   </span>
                 </div>
@@ -1533,6 +1812,169 @@ function AuthenticatedShell({
               </div>
             )}
 
+            {/* Saved Filters (collapsible) */}
+            <div>
+              <div className="mb-1.5 flex items-center justify-between px-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFiltersOpen((prev) => {
+                      const next = !prev;
+                      try {
+                        window.localStorage.setItem('linktive_sidebar_filters', String(next));
+                      } catch {
+                        // ignore storage errors
+                      }
+                      return next;
+                    });
+                  }}
+                  title="저장된 필터 접기/펼치기"
+                  className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] font-bold tracking-tight text-slate-700 hover:text-sky-600"
+                >
+                  {filtersOpen ? (
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                  )}
+                  <span>저장된 필터</span>
+                </button>
+                {canEditWorkspace && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSavedFilterModal({ open: true, editing: null, initialQuery: '' })
+                    }
+                    title="새 저장된 필터"
+                    aria-label="새 저장된 필터"
+                    className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              {filtersOpen &&
+                (savedFilters.length === 0 ? (
+                  <p className="px-2.5 text-xs text-slate-400">저장된 필터가 없습니다.</p>
+                ) : (
+                  <div className="space-y-0.5">
+                    {savedFilters.map((f) => {
+                      const active = routeScope.kind === 'filter' && routeScope.filterId === f.id;
+                      const isMenuOpen = openFilterMenu === f.id;
+                      return (
+                        <div key={f.id} className="relative">
+                          <div
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setOpenFilterMenu(null);
+                              const items: ContextMenuItem[] = [
+                                {
+                                  label: '필터 열기',
+                                  Icon: Filter,
+                                  onClick: () => goScope(`/filters/${encodeURIComponent(f.id)}`),
+                                },
+                                ...(canEditWorkspace
+                                  ? [
+                                      {
+                                        label: '수정',
+                                        Icon: Pencil,
+                                        onClick: () =>
+                                          setSavedFilterModal({
+                                            open: true,
+                                            editing: f,
+                                            initialQuery: f.query,
+                                          }),
+                                      },
+                                      {
+                                        label: '삭제',
+                                        Icon: Trash2,
+                                        danger: true,
+                                        dividerBefore: true,
+                                        onClick: () => handleDeleteSavedFilter(f),
+                                      },
+                                    ]
+                                  : []),
+                              ];
+                              setContextMenu({ x: e.clientX, y: e.clientY, items });
+                            }}
+                            className={`group flex items-center justify-between rounded-lg px-2.5 py-1 text-sm ${
+                              active
+                                ? 'bg-sky-50 font-medium text-sky-700'
+                                : 'text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => goScope(`/filters/${encodeURIComponent(f.id)}`)}
+                              className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left"
+                            >
+                              <Filter
+                                className="h-3.5 w-3.5 shrink-0"
+                                style={{ color: f.color || '#0284c7' }}
+                              />
+                              <span className="truncate">{f.name}</span>
+                            </button>
+                            {canEditWorkspace && (
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenFilterMenu((prev) => (prev === f.id ? null : f.id));
+                                }}
+                                title="필터 메뉴"
+                                aria-label="필터 메뉴"
+                                className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
+                                  isMenuOpen
+                                    ? 'block bg-white text-slate-700'
+                                    : 'block md:hidden md:group-hover:block'
+                                }`}
+                              >
+                                <MoreHorizontal className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {isMenuOpen && canEditWorkspace && (
+                            <div
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="absolute right-1 top-8 z-30 w-32 rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenFilterMenu(null);
+                                  setSavedFilterModal({
+                                    open: true,
+                                    editing: f,
+                                    initialQuery: f.query,
+                                  });
+                                }}
+                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
+                              >
+                                <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                                <span>수정</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenFilterMenu(null);
+                                  handleDeleteSavedFilter(f);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-rose-600 hover:bg-rose-50"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span>삭제</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+            </div>
+
             {/* Tags (collapsible + 1 per row + clickable title -> /tags + context menu) */}
             <div>
               <div className="mb-1.5 flex items-center justify-between px-1.5">
@@ -1552,7 +1994,7 @@ function AuthenticatedShell({
                     }}
                     title="태그 목록 접기/펼치기"
                     aria-label="태그 목록 접기/펼치기"
-                    className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                    className="rounded p-0.5 text-slate-500 hover:text-slate-700"
                   >
                     {tagsOpen ? (
                       <ChevronDown className="h-3.5 w-3.5" />
@@ -1563,8 +2005,8 @@ function AuthenticatedShell({
                   <button
                     type="button"
                     onClick={() => goScope('/tags')}
-                    className={`text-xs font-semibold uppercase tracking-wider hover:text-sky-600 ${
-                      routeScope.kind === 'tags-index' ? 'text-sky-600' : 'text-slate-400'
+                    className={`text-[13px] font-bold tracking-tight hover:text-sky-600 ${
+                      routeScope.kind === 'tags-index' ? 'text-sky-600' : 'text-slate-700'
                     }`}
                   >
                     태그
@@ -1700,6 +2142,7 @@ function AuthenticatedShell({
         {/* Right Main Area */}
         <main
           data-scroll-pane
+          onScroll={(e) => handlePaneScroll(e.currentTarget)}
           className="min-w-0 flex-1 p-3 sm:p-6 md:h-full md:overflow-y-auto"
         >
           <Routes>
@@ -1725,7 +2168,6 @@ function AuthenticatedShell({
                   activeWorkspace={activeWorkspace}
                   onBack={() => navigate('/bookmarks')}
                   onOpenApiDocs={() => navigate('/api-docs')}
-                  onOpenAdmin={() => navigate('/admin')}
                   onUserUpdated={(updatedUser) => onSetUser(updatedUser)}
                   onUpdateSettings={updateSettings}
                   onWorkspaceCreated={(ws) => {
@@ -1829,6 +2271,18 @@ function AuthenticatedShell({
           onUpdate={handleUpdateBookmark}
           onDelete={(bm) => handleDeleteBookmark(bm)}
           onToggleFavorite={(bm) => void handleToggleFavorite(bm)}
+          onCheckLink={handleCheckBookmarkLink}
+        />
+      )}
+
+      {savedFilterModal.open && (
+        <SavedFilterModal
+          editing={savedFilterModal.editing}
+          initialQuery={savedFilterModal.initialQuery}
+          onClose={() =>
+            setSavedFilterModal({ open: false, editing: null, initialQuery: '' })
+          }
+          onSave={handleSaveSavedFilter}
         />
       )}
 

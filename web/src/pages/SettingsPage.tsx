@@ -11,7 +11,6 @@ import {
   LogOut,
   Pencil,
   Plus,
-  Shield,
   ShieldCheck,
   Trash2,
   Upload,
@@ -39,7 +38,6 @@ interface SettingsPageProps {
   activeWorkspace: Workspace;
   onBack: () => void;
   onOpenApiDocs: () => void;
-  onOpenAdmin: () => void;
   onUserUpdated: (user: User) => void;
   onUpdateSettings: (next: UserSettings) => Promise<void>;
   onWorkspaceCreated: (ws: Workspace) => void;
@@ -57,7 +55,6 @@ export function SettingsPage({
   activeWorkspace,
   onBack,
   onOpenApiDocs,
-  onOpenAdmin,
   onUserUpdated,
   onUpdateSettings,
   onWorkspaceCreated,
@@ -361,16 +358,6 @@ export function SettingsPage({
         </div>
 
         <div className="flex items-center gap-2">
-          {user.is_admin && (
-            <button
-              type="button"
-              onClick={onOpenAdmin}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-            >
-              <Shield className="h-3.5 w-3.5" />
-              <span>관리자 설정</span>
-            </button>
-          )}
           <button
             type="button"
             onClick={() => void onLogout()}

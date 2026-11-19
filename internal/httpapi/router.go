@@ -8,16 +8,33 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/linktive/linktive/internal/backup"
 	"github.com/linktive/linktive/internal/store"
 )
 
 type apiHandler struct {
-	store store.Store
+	store  store.Store
+	backup *backup.Manager
+}
+
+// RouterOption configures optional server dependencies for NewRouter.
+type RouterOption func(*apiHandler)
+
+// WithBackupManager wires the automatic backup manager into admin routes.
+func WithBackupManager(m *backup.Manager) RouterOption {
+	return func(h *apiHandler) {
+		h.backup = m
+	}
 }
 
 // NewRouter builds the HTTP router for API endpoints and embedded SPA static assets.
-func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
+func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handler {
 	h := &apiHandler{store: st}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(h)
+		}
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -55,6 +72,11 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 				adm.Get("/invites", h.handleAdminListInvites)
 				adm.Post("/invites", h.handleAdminCreateInvite)
 				adm.Delete("/invites/{inviteID}", h.handleAdminDeleteInvite)
+				adm.Get("/backups", h.handleAdminListBackups)
+				adm.Patch("/backups/settings", h.handleAdminUpdateBackupSettings)
+				adm.Post("/backups/run", h.handleAdminRunBackup)
+				adm.Get("/backups/{filename}", h.handleAdminDownloadBackup)
+				adm.Delete("/backups/{filename}", h.handleAdminDeleteBackup)
 			})
 
 			authed.Get("/api-keys", h.handleListAPIKeys)
@@ -92,6 +114,14 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 				ws.Get("/bookmarks/{bmID}", h.handleGetBookmark)
 				ws.Patch("/bookmarks/{bmID}", h.handleUpdateBookmark)
 				ws.Delete("/bookmarks/{bmID}", h.handleDeleteBookmark)
+				ws.Post("/bookmarks/{bmID}/check-link", h.handleCheckBookmarkLink)
+
+				ws.Post("/links/check", h.handleCheckWorkspaceLinks)
+
+				ws.Get("/filters", h.handleListSavedFilters)
+				ws.Post("/filters", h.handleCreateSavedFilter)
+				ws.Patch("/filters/{filterID}", h.handleUpdateSavedFilter)
+				ws.Delete("/filters/{filterID}", h.handleDeleteSavedFilter)
 
 				ws.Get("/tags", h.handleListTags)
 				ws.Patch("/tags/{tagName}", h.handleRenameTag)

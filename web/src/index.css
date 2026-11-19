@@ -6,3 +6,14 @@ html.scroll-locked [data-scroll-pane] {
   overflow: hidden !important;
   overscroll-behavior: none;
 }
+
+[data-scroll-pane] {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+[data-scroll-pane]:hover,
+[data-scroll-pane]:focus-within,
+[data-scroll-pane].is-scrolling {
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}

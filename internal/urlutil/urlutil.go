@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/linktive/linktive/internal/domain"
 )
 
 var (
@@ -219,4 +221,57 @@ func parseAttrs(raw string) map[string]string {
 
 func cleanText(s string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+}
+
+// CheckURL verifies whether an HTTP(S) bookmark URL is reachable and classifies its link status.
+func CheckURL(ctx context.Context, targetURL string) domain.LinkStatus {
+	normalized, err := EnsureScheme(targetURL)
+	if err != nil {
+		return domain.LinkStatusBroken
+	}
+	u, err := url.Parse(normalized)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return domain.LinkStatusBroken
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+
+	client := &http.Client{Timeout: 6 * time.Second}
+	doCheck := func(method string) (int, error) {
+		req, rErr := http.NewRequestWithContext(reqCtx, method, normalized, nil)
+		if rErr != nil {
+			return 0, rErr
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; linktive-linkcheck/0.2)")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+		resp, dErr := client.Do(req)
+		if dErr != nil {
+			return 0, dErr
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		return resp.StatusCode, nil
+	}
+
+	status, err := doCheck(http.MethodHead)
+	if err != nil || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented || status == http.StatusForbidden {
+		getStatus, getErr := doCheck(http.MethodGet)
+		if getErr == nil {
+			status = getStatus
+			err = nil
+		}
+	}
+
+	if err != nil {
+		return domain.LinkStatusBroken
+	}
+	switch {
+	case status >= 200 && status < 400:
+		return domain.LinkStatusOK
+	case status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusTooManyRequests:
+		return domain.LinkStatusBlocked
+	default:
+		return domain.LinkStatusBroken
+	}
 }

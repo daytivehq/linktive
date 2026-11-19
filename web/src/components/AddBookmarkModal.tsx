@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { ApiError } from '../api/client';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
 import type { Bookmark, Collection } from '../types/bookmark';
 
@@ -16,18 +17,11 @@ interface AddBookmarkModalProps {
 
 export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBookmarkModalProps) {
   useScrollLock();
+  useEscapeKey(onClose);
   const [url, setUrl] = useState('');
   const [duplicateInfo, setDuplicateInfo] = useState<Bookmark | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
 
   const submitWithOption = async (allowDuplicate = false) => {
     const trimmed = url.trim();

@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Hash, X } from 'lucide-react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
 
 interface RenameTagModalProps {
@@ -14,13 +15,7 @@ export function RenameTagModal({ tagName, onClose, onRename }: RenameTagModalPro
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [busy, onClose]);
+  useEscapeKey(onClose, !busy);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

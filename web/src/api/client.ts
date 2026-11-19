@@ -1,12 +1,17 @@
 import type {
   APIKeyItem,
   AuthConfig,
+  AutoBackupSettings,
+  BackupFileInfo,
   Bookmark,
   BulkBookmarkAction,
   Collection,
   CollectionShare,
+  LinkCheckSummary,
+  LinkStatus,
   MemberRole,
   PublicCollectionView,
+  SavedFilter,
   SharedCollectionView,
   SortOrder,
   TagSummary,
@@ -237,6 +242,7 @@ export const api = {
       include_children?: boolean;
       favorite?: boolean;
       tag?: string;
+      link_status?: LinkStatus;
       sort?: SortOrder;
       limit?: number;
       offset?: number;
@@ -248,6 +254,7 @@ export const api = {
     if (params.include_children) qs.set('include_children', 'true');
     if (params.favorite) qs.set('favorite', 'true');
     if (params.tag) qs.set('tag', params.tag);
+    if (params.link_status) qs.set('link_status', params.link_status);
     if (params.sort) qs.set('sort', params.sort);
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
@@ -329,6 +336,70 @@ export const api = {
 
   getStats: (wsID: string) =>
     request<WorkspaceStats>(`/api/v1/workspaces/${wsID}/stats`),
+
+  checkBookmarkLink: (wsID: string, bmID: string) =>
+    request<Bookmark>(`/api/v1/workspaces/${wsID}/bookmarks/${bmID}/check-link`, {
+      method: 'POST',
+    }),
+
+  checkWorkspaceLinks: (wsID: string, onlyUnchecked = false) =>
+    request<LinkCheckSummary>(`/api/v1/workspaces/${wsID}/links/check`, {
+      method: 'POST',
+      body: JSON.stringify({ only_unchecked: onlyUnchecked }),
+    }),
+
+  listSavedFilters: (wsID: string) =>
+    request<{ items: SavedFilter[] }>(`/api/v1/workspaces/${wsID}/filters`),
+
+  createSavedFilter: (
+    wsID: string,
+    payload: { name: string; query: string; icon?: string; color?: string },
+  ) =>
+    request<SavedFilter>(`/api/v1/workspaces/${wsID}/filters`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateSavedFilter: (
+    wsID: string,
+    filterID: string,
+    payload: { name: string; query: string; icon?: string; color?: string },
+  ) =>
+    request<SavedFilter>(`/api/v1/workspaces/${wsID}/filters/${filterID}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteSavedFilter: (wsID: string, filterID: string) =>
+    request<{ status: string }>(`/api/v1/workspaces/${wsID}/filters/${filterID}`, {
+      method: 'DELETE',
+    }),
+
+  adminListBackups: () =>
+    request<{ settings: AutoBackupSettings; items: BackupFileInfo[] }>('/api/v1/admin/backups'),
+
+  adminUpdateBackupSettings: (payload: {
+    enabled: boolean;
+    interval_hours: number;
+    keep_count: number;
+  }) =>
+    request<AutoBackupSettings>('/api/v1/admin/backups/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  adminRunBackup: () =>
+    request<BackupFileInfo>('/api/v1/admin/backups/run', {
+      method: 'POST',
+    }),
+
+  adminDownloadBackupUrl: (filename: string) =>
+    `/api/v1/admin/backups/${encodeURIComponent(filename)}`,
+
+  adminDeleteBackup: (filename: string) =>
+    request<{ status: string }>(`/api/v1/admin/backups/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }),
 
   setCollectionPublic: (wsID: string, colID: string, enabled: boolean) =>
     request<Collection>(`/api/v1/workspaces/${wsID}/collections/${colID}/public`, {

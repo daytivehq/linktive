@@ -54,6 +54,13 @@ func buildSearchQuery(r *http.Request, wsID string) store.SearchQuery {
 	if tag := strings.TrimSpace(qp.Get("tag")); tag != "" {
 		sq.IncludeTags = append(sq.IncludeTags, strings.ToLower(tag))
 	}
+	if status := strings.TrimSpace(strings.ToLower(qp.Get("link_status"))); status != "" {
+		ls := domain.LinkStatus(status)
+		switch ls {
+		case domain.LinkStatusUnknown, domain.LinkStatusOK, domain.LinkStatusBroken, domain.LinkStatusBlocked:
+			sq.LinkStatus = &ls
+		}
+	}
 	if limit, err := strconv.Atoi(qp.Get("limit")); err == nil && limit > 0 {
 		sq.Limit = limit
 	}

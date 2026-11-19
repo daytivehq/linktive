@@ -140,6 +140,8 @@ export type BulkBookmarkAction =
   | 'tags_set'
   | 'tags_remove';
 
+export type LinkStatus = 'unknown' | 'ok' | 'broken' | 'blocked';
+
 export interface Bookmark {
   id: string;
   workspace_id: string;
@@ -154,7 +156,8 @@ export interface Bookmark {
   favicon_url: string;
   thumbnail_url: string;
   is_favorite: boolean;
-  link_status: string;
+  link_status: LinkStatus;
+  last_checked_at?: string | null;
   tags: string[];
   created_at: string;
   updated_at: string;
@@ -169,6 +172,39 @@ export interface WorkspaceStats {
   all_count: number;
   favorite_count: number;
   uncollected_count: number;
+  broken_count: number;
+}
+
+export interface SavedFilter {
+  id: string;
+  workspace_id: string;
+  name: string;
+  query: string;
+  icon: string;
+  color: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LinkCheckSummary {
+  checked: number;
+  ok_count: number;
+  broken_count: number;
+  blocked_count: number;
+  items: Bookmark[];
+}
+
+export interface AutoBackupSettings {
+  enabled: boolean;
+  interval_hours: number;
+  keep_count: number;
+  last_run_at?: string | null;
+}
+
+export interface BackupFileInfo {
+  filename: string;
+  size_bytes: number;
+  created_at: string;
 }
 
 export interface APIKeyItem {
