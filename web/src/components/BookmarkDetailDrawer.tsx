@@ -119,7 +119,7 @@ export function BookmarkDetailDrawer({
       className="fixed inset-0 z-40 flex justify-end bg-slate-900/35"
     >
       <div className="flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3.5 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2.5">
             <FaviconBadge faviconUrl={bookmark.favicon_url} domain={bookmark.domain} size="sm" />
             <h2 className="text-sm font-semibold text-slate-700">
@@ -137,7 +137,7 @@ export function BookmarkDetailDrawer({
 
         {editing ? (
           <form onSubmit={handleSave} className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex-1 space-y-4 overflow-y-auto p-6 text-sm">
+            <div className="flex-1 space-y-4 overflow-y-auto p-4 text-sm sm:p-6">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-700">URL</label>
                 <input
@@ -268,7 +268,7 @@ export function BookmarkDetailDrawer({
           </form>
         ) : (
           <>
-            <div className="flex-1 space-y-5 overflow-y-auto p-6 text-sm">
+            <div className="flex-1 space-y-5 overflow-y-auto p-4 text-sm sm:p-6">
               <div className="flex items-start gap-3">
                 <FaviconBadge faviconUrl={bookmark.favicon_url} domain={bookmark.domain} />
                 <div className="min-w-0 flex-1">

@@ -376,6 +376,40 @@ func TestProfile2FAAndAdminFlow(t *testing.T) {
 	}
 }
 
+func TestExtensionCORSPreflightAndHeaders(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+	handler := NewRouter(st, fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}})
+
+	// Allowed browser extension preflight succeeds with 204 and CORS headers.
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/me", nil)
+	req.Header.Set("Origin", "chrome-extension://abcdefghijklmnop")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for extension preflight, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "chrome-extension://abcdefghijklmnop" {
+		t.Fatalf("unexpected Access-Control-Allow-Origin: %q", got)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Authorization") {
+		t.Fatalf("expected Authorization in Allow-Headers, got %q", got)
+	}
+
+	// Regular web origin does not receive extension wildcard/echo CORS header.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected no Access-Control-Allow-Origin for non-extension origin, got %q", got)
+	}
+}
+
 func doJSON(t *testing.T, handler http.Handler, method, target string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer

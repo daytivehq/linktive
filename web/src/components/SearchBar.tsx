@@ -52,7 +52,7 @@ export function SearchBar({ value, inputRef: externalRef, onChange, onOpenAdvanc
   };
 
   return (
-    <div ref={containerRef} className="relative flex-1 max-w-xl">
+    <div ref={containerRef} className="relative w-full sm:flex-1 sm:max-w-xl">
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
       <input
         ref={inputRef}
@@ -75,7 +75,7 @@ export function SearchBar({ value, inputRef: externalRef, onChange, onOpenAdvanc
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-30 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        <div className="absolute right-0 top-11 z-30 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
           <div className="px-2 py-1 text-xs font-semibold text-slate-400">검색 연산자 추가</div>
           <div className="mt-1 space-y-0.5">
             {FILTER_SUGGESTIONS.map((item) => {

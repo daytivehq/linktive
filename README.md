@@ -51,6 +51,20 @@ docker compose up -d
 
 ---
 
+## 브라우저 확장 프로그램
+
+`extension/` 폴더에 Chrome/Edge(Manifest V3)용 확장 프로그램이 포함되어 있습니다.
+
+1. 빌드: `cd extension && npm install && npm run build`
+2. 브라우저에서 `chrome://extensions` (Edge는 `edge://extensions`) 열기 → **개발자 모드** 활성화
+3. **압축해제된 확장 프로그램을 로드합니다** 선택 후 `extension/dist` 폴더 지정
+4. 확장 프로그램 설정에서 linktive **서버 주소**와 **API 키**(`설정 → API 키`)를 입력
+
+- **빠른 저장**: 확장 아이콘 클릭 또는 `Alt+Shift+L` (macOS: `Cmd+Shift+L`)
+- **주소창 즉시 검색**: 주소창에 `lk` 입력 후 `Space`/`Tab` + 검색어 입력
+
+---
+
 ## 백업
 
 모든 데이터는 컨테이너의 `/data/linktive.db` (호스트의 `./data` 폴더)에 저장됩니다.  

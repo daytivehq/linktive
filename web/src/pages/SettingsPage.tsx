@@ -382,8 +382,8 @@ export function SettingsPage({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-6">
-        <div className="mb-5 flex flex-wrap gap-4 border-b border-slate-200 text-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+        <div className="mb-5 flex gap-4 overflow-x-auto whitespace-nowrap border-b border-slate-200 text-sm">
           <button
             type="button"
             onClick={() => setTab('general')}

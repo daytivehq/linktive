@@ -23,6 +23,7 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(extensionCORS)
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/health", h.handleHealth)

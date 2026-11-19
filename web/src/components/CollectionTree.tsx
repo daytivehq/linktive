@@ -171,13 +171,13 @@ export function CollectionTree({
                   }}
                   aria-label="컬렉션 메뉴"
                   className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
-                    isMenuOpen ? 'block bg-white text-slate-700' : 'hidden group-hover:block'
+                    isMenuOpen ? 'block bg-white text-slate-700' : 'block md:hidden md:group-hover:block'
                   }`}
                 >
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               )}
-              <span className={`text-xs text-slate-400 ${canEdit ? 'group-hover:hidden' : ''} ${isMenuOpen ? 'hidden' : ''}`}>
+              <span className={`text-xs text-slate-400 ${canEdit ? 'md:group-hover:hidden' : ''} ${isMenuOpen ? 'hidden' : ''}`}>
                 {col.bookmark_count}
               </span>
             </div>
