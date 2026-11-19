@@ -3,6 +3,11 @@ import {
   Bookmark as BookmarkIcon,
   Check,
   CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  ExternalLink,
+  FolderOpen,
   FolderPlus,
   Hash,
   Inbox,
@@ -12,6 +17,7 @@ import {
   PanelRightOpen,
   Pencil,
   Plus,
+  Share2,
   Shield,
   SlidersHorizontal,
   Star,
@@ -35,6 +41,7 @@ import { BulkActionBar } from './components/BulkActionBar';
 import { CollectionModal } from './components/CollectionModal';
 import { CollectionShareModal } from './components/CollectionShareModal';
 import { ConfirmModal } from './components/ConfirmModal';
+import { ContextMenu, type ContextMenuItem } from './components/ContextMenu';
 import {
   CollectionTree,
   MIME_BOOKMARK_DRAG,
@@ -50,6 +57,7 @@ import { ApiDocsPage } from './pages/ApiDocsPage';
 import { PublicCollectionPage } from './pages/PublicCollectionPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TagsPage } from './pages/TagsPage';
+import { copyToClipboard } from './utils/clipboard';
 import {
   parseUserSettings,
   type Bookmark,
@@ -202,6 +210,25 @@ function AuthenticatedShell({
     message: string;
     onConfirm: () => Promise<void>;
   } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
+  const [collectionsOpen, setCollectionsOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('linktive_sidebar_collections') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [tagsOpen, setTagsOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('linktive_sidebar_tags') !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [sidebarDropTarget, setSidebarDropTarget] = useState<'uncollected' | 'favorites' | null>(
@@ -366,6 +393,8 @@ function AuthenticatedShell({
             : routeScope.kind === 'uncollected'
               ? 'uncollected'
               : undefined,
+        include_children:
+          routeScope.kind === 'collection' ? settings.include_subcollections : undefined,
         favorite: routeScope.kind === 'favorites' ? true : undefined,
         tag: routeScope.kind === 'tag' ? routeScope.tagName : undefined,
         sort: sortOrder,
@@ -376,7 +405,7 @@ function AuthenticatedShell({
     } finally {
       setLoadingBookmarks(false);
     }
-  }, [activeWorkspace.id, routeScope, sortOrder]);
+  }, [activeWorkspace.id, routeScope, sortOrder, settings.include_subcollections]);
 
   useEffect(() => {
     void refreshSidebar(activeWorkspace.id);
@@ -860,6 +889,53 @@ function AuthenticatedShell({
                 draggable={canEditWorkspace && !selectMode && !isSharedCollectionView}
                 onDragStart={(e) => handleBookmarkDragStart(e, bm)}
                 onClick={() => handleBookmarkClick(bm)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const items: ContextMenuItem[] = [
+                    {
+                      label: '새 탭으로 열기',
+                      Icon: ExternalLink,
+                      onClick: () => window.open(bm.url, '_blank', 'noopener,noreferrer'),
+                    },
+                    {
+                      label: '세부정보 보기',
+                      Icon: PanelRightOpen,
+                      onClick: () => setDetailDrawer({ bookmark: bm, editing: false }),
+                    },
+                    ...(canEditCurrentView
+                      ? [
+                          {
+                            label: '수정',
+                            Icon: Pencil,
+                            onClick: () => setDetailDrawer({ bookmark: bm, editing: true }),
+                          },
+                          {
+                            label: bm.is_favorite ? '즐겨찾기 해제' : '즐겨찾기 추가',
+                            Icon: Star,
+                            onClick: () => void handleToggleFavorite(bm),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: 'URL 복사',
+                      Icon: Copy,
+                      onClick: () => void copyToClipboard(bm.url),
+                    },
+                    ...(canEditCurrentView
+                      ? [
+                          {
+                            label: '삭제',
+                            Icon: Trash2,
+                            danger: true,
+                            dividerBefore: true,
+                            onClick: () => handleDeleteBookmark(bm),
+                          },
+                        ]
+                      : []),
+                  ];
+                  setContextMenu({ x: e.clientX, y: e.clientY, items });
+                }}
                 className={`group flex cursor-pointer flex-col justify-between rounded-xl border p-4 transition ${
                   isSelected
                     ? 'border-sky-500 bg-sky-50/40 ring-1 ring-sky-400'
@@ -1148,12 +1224,31 @@ function AuthenticatedShell({
               </button>
             </div>
 
-            {/* Collections */}
+            {/* Collections (collapsible) */}
             <div>
-              <div className="mb-1.5 flex items-center justify-between px-2.5">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  컬렉션
-                </span>
+              <div className="mb-1.5 flex items-center justify-between px-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCollectionsOpen((prev) => {
+                      const next = !prev;
+                      try {
+                        window.localStorage.setItem('linktive_sidebar_collections', String(next));
+                      } catch {
+                        // ignore storage errors
+                      }
+                      return next;
+                    });
+                  }}
+                  className="flex items-center gap-1 rounded px-1 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-700"
+                >
+                  {collectionsOpen ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                  <span>컬렉션</span>
+                </button>
                 {canEditWorkspace && (
                   <button
                     type="button"
@@ -1167,32 +1262,80 @@ function AuthenticatedShell({
                   </button>
                 )}
               </div>
-              <CollectionTree
-                collections={collections}
-                activeCollectionId={
-                  routeScope.kind === 'collection' ? routeScope.collectionId : undefined
-                }
-                canEdit={canEditWorkspace}
-                onSelect={(id) => goScope(`/collections/${encodeURIComponent(id)}`)}
-                onCreateChild={(parentId) =>
-                  setCollectionModal({ open: true, editing: null, initialParentId: parentId })
-                }
-                onEdit={(col) =>
-                  setCollectionModal({
-                    open: true,
-                    editing: col,
-                    initialParentId: col.parent_id ?? null,
-                  })
-                }
-                onShare={(col) => setShareModalCollection(col)}
-                onDelete={(col) => void handleDeleteCollection(col)}
-                onMoveCollection={(colId, newParentId) =>
-                  void handleMoveCollection(colId, newParentId)
-                }
-                onDropBookmark={(bmId, targetColId) =>
-                  void handleDropBookmarkToCollection(bmId, targetColId)
-                }
-              />
+              {collectionsOpen && (
+                <CollectionTree
+                  collections={collections}
+                  activeCollectionId={
+                    routeScope.kind === 'collection' ? routeScope.collectionId : undefined
+                  }
+                  canEdit={canEditWorkspace}
+                  onSelect={(id) => goScope(`/collections/${encodeURIComponent(id)}`)}
+                  onCreateChild={(parentId) =>
+                    setCollectionModal({ open: true, editing: null, initialParentId: parentId })
+                  }
+                  onEdit={(col) =>
+                    setCollectionModal({
+                      open: true,
+                      editing: col,
+                      initialParentId: col.parent_id ?? null,
+                    })
+                  }
+                  onShare={(col) => setShareModalCollection(col)}
+                  onDelete={(col) => handleDeleteCollection(col)}
+                  onMoveCollection={(colId, newParentId) =>
+                    void handleMoveCollection(colId, newParentId)
+                  }
+                  onDropBookmark={(bmId, targetColId) =>
+                    void handleDropBookmarkToCollection(bmId, targetColId)
+                  }
+                  onContextMenu={(e, col) => {
+                    const items: ContextMenuItem[] = [
+                      {
+                        label: '컬렉션 열기',
+                        Icon: FolderOpen,
+                        onClick: () => goScope(`/collections/${encodeURIComponent(col.id)}`),
+                      },
+                      ...(canEditWorkspace
+                        ? [
+                            {
+                              label: '하위 컬렉션 추가',
+                              Icon: FolderPlus,
+                              onClick: () =>
+                                setCollectionModal({
+                                  open: true,
+                                  editing: null,
+                                  initialParentId: col.id,
+                                }),
+                            },
+                            {
+                              label: '수정',
+                              Icon: Pencil,
+                              onClick: () =>
+                                setCollectionModal({
+                                  open: true,
+                                  editing: col,
+                                  initialParentId: col.parent_id ?? null,
+                                }),
+                            },
+                            {
+                              label: '공유 및 공개',
+                              Icon: Share2,
+                              onClick: () => setShareModalCollection(col),
+                            },
+                            {
+                              label: '삭제',
+                              Icon: Trash2,
+                              danger: true,
+                              dividerBefore: true,
+                              onClick: () => handleDeleteCollection(col),
+                            },
+                          ]
+                        : []),
+                    ];
+                    setContextMenu({ x: e.clientX, y: e.clientY, items });
+                  }}
+                />
+              )}
             </div>
 
             {/* Shared Collections from other users/workspaces */}
@@ -1233,36 +1376,90 @@ function AuthenticatedShell({
               </div>
             )}
 
-            {/* Tags (1 per row + clickable title -> /tags + ... menu) */}
+            {/* Tags (collapsible + 1 per row + clickable title -> /tags + context menu) */}
             <div>
-              <div className="mb-1.5 flex items-center justify-between px-2.5">
-                <button
-                  type="button"
-                  onClick={() => goScope('/tags')}
-                  className={`text-xs font-semibold uppercase tracking-wider hover:text-sky-600 ${
-                    routeScope.kind === 'tags-index' ? 'text-sky-600' : 'text-slate-400'
-                  }`}
-                >
-                  태그
-                </button>
+              <div className="mb-1.5 flex items-center justify-between px-1.5">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTagsOpen((prev) => {
+                        const next = !prev;
+                        try {
+                          window.localStorage.setItem('linktive_sidebar_tags', String(next));
+                        } catch {
+                          // ignore storage errors
+                        }
+                        return next;
+                      });
+                    }}
+                    aria-label="태그 목록 접기/펼치기"
+                    className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                  >
+                    {tagsOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => goScope('/tags')}
+                    className={`text-xs font-semibold uppercase tracking-wider hover:text-sky-600 ${
+                      routeScope.kind === 'tags-index' ? 'text-sky-600' : 'text-slate-400'
+                    }`}
+                  >
+                    태그
+                  </button>
+                </div>
               </div>
-              {tags.length === 0 ? (
-                <p className="px-2.5 text-xs text-slate-400">태그가 없습니다.</p>
-              ) : (
-                <div className="space-y-0.5">
-                  {tags.map((t) => {
-                    const isTagActive =
-                      routeScope.kind === 'tag' && routeScope.tagName === t.name;
-                    const isMenuOpen = openTagMenu === t.name;
-                    return (
-                      <div key={t.name} className="relative">
-                        <div
-                          className={`group flex items-center justify-between rounded-lg px-2.5 py-1 text-sm ${
-                            isTagActive
-                              ? 'bg-sky-50 font-medium text-sky-700'
-                              : 'text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
+              {tagsOpen &&
+                (tags.length === 0 ? (
+                  <p className="px-2.5 text-xs text-slate-400">태그가 없습니다.</p>
+                ) : (
+                  <div className="space-y-0.5">
+                    {tags.map((t) => {
+                      const isTagActive =
+                        routeScope.kind === 'tag' && routeScope.tagName === t.name;
+                      const isMenuOpen = openTagMenu === t.name;
+                      return (
+                        <div key={t.name} className="relative">
+                          <div
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setOpenTagMenu(null);
+                              const items: ContextMenuItem[] = [
+                                {
+                                  label: '태그 북마크 보기',
+                                  Icon: Hash,
+                                  onClick: () => goScope(`/tags/${encodeURIComponent(t.name)}`),
+                                },
+                                ...(canEditWorkspace
+                                  ? [
+                                      {
+                                        label: '이름 수정',
+                                        Icon: Pencil,
+                                        onClick: () => setRenameTagTarget(t.name),
+                                      },
+                                      {
+                                        label: '삭제',
+                                        Icon: Trash2,
+                                        danger: true,
+                                        dividerBefore: true,
+                                        onClick: () => handleDeleteTag(t.name),
+                                      },
+                                    ]
+                                  : []),
+                              ];
+                              setContextMenu({ x: e.clientX, y: e.clientY, items });
+                            }}
+                            className={`group flex items-center justify-between rounded-lg px-2.5 py-1 text-sm ${
+                              isTagActive
+                                ? 'bg-sky-50 font-medium text-sky-700'
+                                : 'text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
                           <button
                             type="button"
                             onClick={() =>
@@ -1336,7 +1533,7 @@ function AuthenticatedShell({
                     );
                   })}
                 </div>
-              )}
+                ))}
             </div>
           </nav>
         </aside>
@@ -1491,6 +1688,15 @@ function AuthenticatedShell({
           message={confirmState.message}
           onClose={() => setConfirmState(null)}
           onConfirm={confirmState.onConfirm}
+        />
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
         />
       )}
     </div>

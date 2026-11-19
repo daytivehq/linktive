@@ -44,6 +44,9 @@ func buildSearchQuery(r *http.Request, wsID string) store.SearchQuery {
 	if colID := strings.TrimSpace(qp.Get("collection_id")); colID != "" {
 		sq.CollectionID = &colID
 	}
+	if qp.Get("include_children") == "true" || qp.Get("include_children") == "1" {
+		sq.IncludeSubcollections = true
+	}
 	if qp.Get("favorite") == "true" || qp.Get("favorite") == "1" {
 		t := true
 		sq.OnlyFavorite = &t

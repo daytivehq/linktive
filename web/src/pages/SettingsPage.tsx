@@ -71,6 +71,9 @@ export function SettingsPage({
     'general',
   );
   const [clickAction, setClickAction] = useState<ClickAction>(settings.click_action);
+  const [includeSubcollections, setIncludeSubcollections] = useState<boolean>(
+    settings.include_subcollections,
+  );
 
   // Account & Security state
   const [profileName, setProfileName] = useState(user.name);
@@ -108,7 +111,13 @@ export function SettingsPage({
 
   useEffect(() => {
     setClickAction(settings.click_action);
-  }, [settings.click_action]);
+    setIncludeSubcollections(settings.include_subcollections);
+  }, [settings.click_action, settings.include_subcollections]);
+
+  useEffect(() => {
+    setMessage('');
+    setError('');
+  }, [tab]);
 
   useEffect(() => {
     setProfileName(user.name);
@@ -134,7 +143,11 @@ export function SettingsPage({
     setError('');
     setMessage('');
     try {
-      await onUpdateSettings({ ...settings, click_action: clickAction });
+      await onUpdateSettings({
+        ...settings,
+        click_action: clickAction,
+        include_subcollections: includeSubcollections,
+      });
       setMessage('설정이 저장되었습니다.');
     } catch (err) {
       setError(err instanceof Error ? err.message : '설정 저장 실패');
@@ -451,6 +464,30 @@ export function SettingsPage({
                 ))}
               </div>
             </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-700">
+                컬렉션 탐색 동작
+              </label>
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-3 text-sm hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  checked={includeSubcollections}
+                  onChange={(e) => setIncludeSubcollections(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="font-medium text-slate-800">
+                    상위 폴더 선택 시 하위 폴더의 북마크도 함께 표시
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    켜두면 상위 컬렉션을 클릭했을 때 하위 컬렉션에 담긴 북마크까지 모아서 함께
+                    보여줍니다.
+                  </div>
+                </div>
+              </label>
+            </div>
+
             <div className="flex justify-end">
               <button
                 type="submit"

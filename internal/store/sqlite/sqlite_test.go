@@ -112,6 +112,24 @@ func TestCollectionsBookmarksAndKoreanHybridSearch(t *testing.T) {
 		{name: "Site and collection operators", raw: "site:example.com in:회계 is:favorite", wantCount: 1, wantFirst: bm1.ID},
 	}
 
+	// Verify include_subcollections returns bookmarks in both rootCol and childCol.
+	subRes, err := st.SearchBookmarks(ctx, store.SearchQuery{
+		WorkspaceID:           ws.ID,
+		CollectionID:          &rootCol.ID,
+		IncludeSubcollections: true,
+	})
+	if err != nil || subRes.Total != 2 {
+		t.Fatalf("expected 2 bookmarks with IncludeSubcollections=true, got total=%d err=%v", subRes.Total, err)
+	}
+	directRes, err := st.SearchBookmarks(ctx, store.SearchQuery{
+		WorkspaceID:           ws.ID,
+		CollectionID:          &rootCol.ID,
+		IncludeSubcollections: false,
+	})
+	if err != nil || directRes.Total != 1 {
+		t.Fatalf("expected 1 bookmark with IncludeSubcollections=false, got total=%d err=%v", directRes.Total, err)
+	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sq := search.ParseQuery(ws.ID, tc.raw)

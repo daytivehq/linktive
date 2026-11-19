@@ -545,6 +545,16 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 	if query.CollectionID != nil && *query.CollectionID != "" {
 		if *query.CollectionID == "uncollected" {
 			where = append(where, "b.collection_id IS NULL")
+		} else if query.IncludeSubcollections {
+			where = append(where, `b.collection_id IN (
+				WITH RECURSIVE subcols(id) AS (
+					SELECT id FROM collections WHERE id = ? AND workspace_id = ?
+					UNION ALL
+					SELECT c.id FROM collections c JOIN subcols s ON c.parent_id = s.id WHERE c.workspace_id = ?
+				)
+				SELECT id FROM subcols
+			)`)
+			args = append(args, *query.CollectionID, query.WorkspaceID, query.WorkspaceID)
 		} else {
 			where = append(where, "b.collection_id = ?")
 			args = append(args, *query.CollectionID)

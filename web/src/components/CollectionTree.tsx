@@ -17,6 +17,7 @@ interface CollectionTreeProps {
   onDelete: (col: Collection) => void;
   onMoveCollection: (colId: string, newParentId: string | null) => void;
   onDropBookmark: (bookmarkId: string, targetCollectionId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, col: Collection) => void;
 }
 
 export function CollectionTree({
@@ -30,6 +31,7 @@ export function CollectionTree({
   onDelete,
   onMoveCollection,
   onDropBookmark,
+  onContextMenu,
 }: CollectionTreeProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [draggingColId, setDraggingColId] = useState<string | null>(null);
@@ -81,6 +83,13 @@ export function CollectionTree({
       return (
         <div key={col.id} className="relative">
           <div
+            onContextMenu={(e) => {
+              if (!onContextMenu) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setOpenMenuId(null);
+              onContextMenu(e, col);
+            }}
             draggable={canEdit}
             onDragStart={(e) => {
               if (!canEdit) return;

@@ -27,7 +27,11 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
       .authConfig(inviteToken || undefined)
       .then((cfg) => {
         setAuthConfig(cfg);
-        if (!cfg.has_users || (inviteToken && cfg.invite_valid)) {
+        const allowReg =
+          !cfg.has_users || cfg.registration_enabled || Boolean(inviteToken && cfg.invite_valid);
+        if (!allowReg) {
+          setMode('login');
+        } else if (!cfg.has_users || (inviteToken && cfg.invite_valid)) {
           setMode('register');
         }
       })
@@ -129,107 +133,113 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           </button>
           <button
             type="button"
+            disabled={!canRegister}
+            title={!canRegister ? '관리자에 의해 회원가입이 비활성화되었습니다.' : undefined}
             onClick={() => {
+              if (!canRegister) return;
               setMode('register');
               setRequires2FA(false);
               setError('');
             }}
             className={`rounded-md py-1.5 ${
-              mode === 'register' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+              !canRegister
+                ? 'cursor-not-allowed text-slate-400 opacity-50'
+                : mode === 'register'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-500'
             }`}
           >
             회원가입
           </button>
         </div>
 
-        {mode === 'register' && !canRegister ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-600">
-            현재 신규 회원가입이 비활성화되어 있습니다.
-            <br />
-            관리자에게 초대 링크를 요청해 주세요.
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-3">
-            {mode === 'register' && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">닉네임</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="홍길동"
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
-                />
-              </div>
-            )}
+        {!canRegister && (
+          <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            신규 회원가입이 비활성화되어 있습니다. 기존 계정으로 로그인하거나 관리자 초대 링크를
+            사용해 주세요.
+          </p>
+        )}
 
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {mode === 'register' && canRegister && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">이메일</label>
+              <label className="mb-1 block text-xs font-medium text-slate-700">닉네임</label>
               <input
-                type="email"
+                type="text"
                 required
-                disabled={requires2FA}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="홍길동"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
               />
             </div>
+          )}
 
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                비밀번호 (6자 이상)
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-700">이메일</label>
+            <input
+              type="email"
+              required
+              disabled={requires2FA}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-700">
+              비밀번호 (6자 이상)
+            </label>
+            <input
+              type="password"
+              required
+              minLength={6}
+              disabled={requires2FA}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100"
+            />
+          </div>
+
+          {requires2FA && mode === 'login' && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-sky-900">
+                <ShieldCheck className="h-4 w-4 text-sky-600" />
+                <span>2단계 인증(2FA) 코드 6자리</span>
               </label>
               <input
-                type="password"
+                type="text"
+                inputMode="numeric"
+                autoFocus
                 required
-                minLength={6}
-                disabled={requires2FA}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100"
+                maxLength={6}
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="123456"
+                className="w-full rounded-lg border border-sky-300 bg-white px-3 py-2 text-center font-mono text-base tracking-widest outline-none focus:border-sky-500"
               />
             </div>
+          )}
 
-            {requires2FA && mode === 'login' && (
-              <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
-                <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-sky-900">
-                  <ShieldCheck className="h-4 w-4 text-sky-600" />
-                  <span>2단계 인증(2FA) 코드 6자리</span>
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  autoFocus
-                  required
-                  maxLength={6}
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
-                  className="w-full rounded-lg border border-sky-300 bg-white px-3 py-2 text-center font-mono text-base tracking-widest outline-none focus:border-sky-500"
-                />
-              </div>
-            )}
+          {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
 
-            {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-lg bg-sky-600 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
-            >
-              {submitting
-                ? '처리 중...'
-                : mode === 'login'
-                  ? requires2FA
-                    ? '인증 후 로그인'
-                    : '로그인'
-                  : '계정 만들기'}
-            </button>
-          </form>
-        )}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-lg bg-sky-600 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
+          >
+            {submitting
+              ? '처리 중...'
+              : mode === 'login'
+                ? requires2FA
+                  ? '인증 후 로그인'
+                  : '로그인'
+                : '계정 만들기'}
+          </button>
+        </form>
       </div>
     </div>
   );

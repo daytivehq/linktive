@@ -33,9 +33,10 @@ func (e *DuplicateURLError) Unwrap() error {
 
 // SearchQuery represents parsed search terms and filter operators.
 type SearchQuery struct {
-	WorkspaceID  string
-	CollectionID *string
-	Raw          string
+	WorkspaceID           string
+	CollectionID          *string
+	IncludeSubcollections bool
+	Raw                   string
 	Terms        []string
 	IncludeTags  []string
 	ExcludeTags  []string

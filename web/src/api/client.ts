@@ -234,6 +234,7 @@ export const api = {
     params: {
       q?: string;
       collection_id?: string;
+      include_children?: boolean;
       favorite?: boolean;
       tag?: string;
       sort?: SortOrder;
@@ -244,6 +245,7 @@ export const api = {
     const qs = new URLSearchParams();
     if (params.q) qs.set('q', params.q);
     if (params.collection_id) qs.set('collection_id', params.collection_id);
+    if (params.include_children) qs.set('include_children', 'true');
     if (params.favorite) qs.set('favorite', 'true');
     if (params.tag) qs.set('tag', params.tag);
     if (params.sort) qs.set('sort', params.sort);

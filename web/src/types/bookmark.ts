@@ -16,12 +16,14 @@ export interface VisibleFields {
 export interface UserSettings {
   click_action: ClickAction;
   view_mode: ViewMode;
+  include_subcollections: boolean;
   visible_fields: VisibleFields;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   click_action: 'new_tab',
   view_mode: 'list',
+  include_subcollections: false,
   visible_fields: {
     thumbnail: true,
     title: true,
@@ -184,6 +186,8 @@ export function parseUserSettings(raw?: string): UserSettings {
     return {
       click_action: parsed.click_action ?? DEFAULT_USER_SETTINGS.click_action,
       view_mode: parsed.view_mode ?? DEFAULT_USER_SETTINGS.view_mode,
+      include_subcollections:
+        parsed.include_subcollections ?? DEFAULT_USER_SETTINGS.include_subcollections,
       visible_fields: {
         ...DEFAULT_USER_SETTINGS.visible_fields,
         ...(parsed.visible_fields ?? {}),
