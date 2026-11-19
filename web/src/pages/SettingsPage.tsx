@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Copy, KeyRound, LogOut, Plus, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, Copy, KeyRound, LogOut, Plus, Trash2, Users } from 'lucide-react';
 import { api } from '../api/client';
 import type {
   APIKeyItem,
@@ -11,25 +11,25 @@ import type {
   WorkspaceMember,
 } from '../types/bookmark';
 
-interface SettingsModalProps {
+interface SettingsPageProps {
   user: User;
   settings: UserSettings;
   activeWorkspace: Workspace;
-  onClose: () => void;
+  onBack: () => void;
   onUpdateSettings: (next: UserSettings) => Promise<void>;
   onWorkspaceCreated: (ws: Workspace) => void;
   onLogout: () => Promise<void>;
 }
 
-export function SettingsModal({
+export function SettingsPage({
   user,
   settings,
   activeWorkspace,
-  onClose,
+  onBack,
   onUpdateSettings,
   onWorkspaceCreated,
   onLogout,
-}: SettingsModalProps) {
+}: SettingsPageProps) {
   const [tab, setTab] = useState<'general' | 'workspaces' | 'apikeys'>('general');
   const [clickAction, setClickAction] = useState<ClickAction>(settings.click_action);
 
@@ -43,6 +43,10 @@ export function SettingsModal({
   const [createdToken, setCreatedToken] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    setClickAction(settings.click_action);
+  }, [settings.click_action]);
 
   useEffect(() => {
     if (tab === 'workspaces') {
@@ -132,35 +136,39 @@ export function SettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">설정 및 계정</h2>
-            <p className="text-xs text-slate-500">
-              {user.name} ({user.email})
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void onLogout()}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              <span>로그아웃</span>
-            </button>
-            <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>북마크로 돌아가기</span>
+          </button>
+          <h1 className="text-xl font-bold text-slate-900">설정 및 계정</h1>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {user.name} ({user.email})
+          </p>
         </div>
 
-        <div className="mb-4 flex gap-2 border-b border-slate-200 text-sm">
+        <button
+          type="button"
+          onClick={() => void onLogout()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          <span>로그아웃</span>
+        </button>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6">
+        <div className="mb-5 flex gap-4 border-b border-slate-200 text-sm">
           <button
             type="button"
             onClick={() => setTab('general')}
-            className={`border-b-2 pb-2 font-medium ${
+            className={`border-b-2 pb-2.5 font-medium ${
               tab === 'general' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
             }`}
           >
@@ -169,22 +177,22 @@ export function SettingsModal({
           <button
             type="button"
             onClick={() => setTab('workspaces')}
-            className={`inline-flex items-center gap-1 border-b-2 pb-2 font-medium ${
+            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
               tab === 'workspaces' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
             }`}
           >
-            <Users className="h-3.5 w-3.5" />
-            소속·공유
+            <Users className="h-4 w-4" />
+            <span>소속·공유</span>
           </button>
           <button
             type="button"
             onClick={() => setTab('apikeys')}
-            className={`inline-flex items-center gap-1 border-b-2 pb-2 font-medium ${
+            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
               tab === 'apikeys' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
             }`}
           >
-            <KeyRound className="h-3.5 w-3.5" />
-            API 키
+            <KeyRound className="h-4 w-4" />
+            <span>API 키</span>
           </button>
         </div>
 
@@ -204,7 +212,7 @@ export function SettingsModal({
                 ).map(([value, label]) => (
                   <label
                     key={value}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
+                    className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50"
                   >
                     <input
                       type="radio"
@@ -220,7 +228,7 @@ export function SettingsModal({
             <div className="flex justify-end">
               <button
                 type="submit"
-                className="rounded-lg bg-sky-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
               >
                 설정 저장
               </button>
@@ -236,30 +244,35 @@ export function SettingsModal({
                 value={newWsName}
                 onChange={(e) => setNewWsName(e.target.value)}
                 placeholder="새 공유 소속 이름 (예: 우리 가족)"
-                className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-sky-500"
+                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
               />
               <button
                 type="submit"
-                className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
+                className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-sky-700"
               >
                 <Plus className="h-4 w-4" />
                 <span>소속 만들기</span>
               </button>
             </form>
 
-            <div className="rounded-xl border border-slate-200 p-3">
-              <div className="mb-2 text-xs font-semibold text-slate-600">
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-2.5 text-xs font-semibold text-slate-600">
                 현재 소속 멤버: {activeWorkspace.name}
               </div>
               <div className="space-y-1.5 text-sm">
                 {members.map((m) => (
-                  <div key={m.user_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5">
+                  <div
+                    key={m.user_id}
+                    className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"
+                  >
                     <div>
                       <span className="font-medium">{m.name}</span>{' '}
                       <span className="text-xs text-slate-500">({m.email})</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="rounded bg-white px-2 py-0.5 text-xs text-slate-600">{m.role}</span>
+                      <span className="rounded bg-white px-2 py-0.5 text-xs text-slate-600">
+                        {m.role}
+                      </span>
                       {activeWorkspace.role === 'owner' && m.role !== 'owner' && (
                         <button
                           type="button"
@@ -281,19 +294,19 @@ export function SettingsModal({
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                     placeholder="가입된 사용자 이메일 입력"
-                    className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-sky-500"
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-sky-500"
                   />
                   <select
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as MemberRole)}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
                   >
                     <option value="editor">편집자</option>
                     <option value="viewer">열람자</option>
                   </select>
                   <button
                     type="submit"
-                    className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
+                    className="rounded-lg bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
                   >
                     초대
                   </button>
@@ -311,11 +324,11 @@ export function SettingsModal({
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
                 placeholder="키 이름 (예: Chrome 확장, n8n)"
-                className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-sky-500"
+                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
               />
               <button
                 type="submit"
-                className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
               >
                 발급
               </button>
@@ -323,13 +336,15 @@ export function SettingsModal({
 
             {createdToken && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
-                <div className="mb-1 font-semibold">발급된 API 토큰 (지금 한 번만 표시됩니다):</div>
-                <div className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1 font-mono">
+                <div className="mb-1 font-semibold">
+                  발급된 API 토큰 (지금 한 번만 표시됩니다):
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded bg-white px-2.5 py-1.5 font-mono">
                   <span className="truncate">{createdToken}</span>
                   <button
                     type="button"
                     onClick={() => void navigator.clipboard.writeText(createdToken)}
-                    className="inline-flex items-center gap-1 text-sky-600"
+                    className="inline-flex shrink-0 items-center gap-1 text-sky-600"
                   >
                     <Copy className="h-3.5 w-3.5" />
                     복사
@@ -343,7 +358,10 @@ export function SettingsModal({
                 <p className="text-xs text-slate-400">발급된 API 키가 없습니다.</p>
               ) : (
                 apiKeys.map((k) => (
-                  <div key={k.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                  <div
+                    key={k.id}
+                    className="flex items-center justify-between rounded-lg bg-slate-50 px-3.5 py-2.5"
+                  >
                     <div>
                       <div className="font-medium">{k.name}</div>
                       <div className="text-xs text-slate-400">생성: {k.created_at.slice(0, 10)}</div>
@@ -362,8 +380,14 @@ export function SettingsModal({
           </div>
         )}
 
-        {message && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{message}</p>}
-        {error && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
+        {message && (
+          <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>
+        )}
       </div>
     </div>
   );

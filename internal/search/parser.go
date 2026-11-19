@@ -29,14 +29,24 @@ func ParseQuery(workspaceID, raw string) store.SearchQuery {
 	for _, token := range strings.Fields(q.Raw) {
 		lower := strings.ToLower(token)
 		switch {
+		case strings.HasPrefix(lower, "tags:") && len(token) > 5:
+			q.IncludeTags = append(q.IncludeTags, strings.ToLower(token[5:]))
 		case strings.HasPrefix(lower, "tag:") && len(token) > 4:
 			q.IncludeTags = append(q.IncludeTags, strings.ToLower(token[4:]))
+		case strings.HasPrefix(lower, "-tags:") && len(token) > 6:
+			q.ExcludeTags = append(q.ExcludeTags, strings.ToLower(token[6:]))
 		case strings.HasPrefix(lower, "-tag:") && len(token) > 5:
 			q.ExcludeTags = append(q.ExcludeTags, strings.ToLower(token[5:]))
 		case strings.HasPrefix(lower, "site:") && len(token) > 5:
 			q.Domains = append(q.Domains, strings.ToLower(token[5:]))
 		case strings.HasPrefix(lower, "in:") && len(token) > 3:
 			q.Collection = token[3:]
+		case strings.HasPrefix(lower, "date:") && len(token) > 5:
+			q.DateExact = token[5:]
+		case strings.HasPrefix(lower, "after:") && len(token) > 6:
+			q.DateAfter = token[6:]
+		case strings.HasPrefix(lower, "before:") && len(token) > 7:
+			q.DateBefore = token[7:]
 		case lower == "is:favorite":
 			t := true
 			q.OnlyFavorite = &t

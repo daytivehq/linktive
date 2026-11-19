@@ -101,6 +101,12 @@ export interface TagSummary {
   count: number;
 }
 
+export interface WorkspaceStats {
+  all_count: number;
+  favorite_count: number;
+  uncollected_count: number;
+}
+
 export interface APIKeyItem {
   id: string;
   user_id: string;

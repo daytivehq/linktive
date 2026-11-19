@@ -266,6 +266,20 @@ func (s *Store) ListTags(ctx context.Context, workspaceID string) ([]domain.TagS
 	return items, rows.Err()
 }
 
+// GetWorkspaceStats returns sidebar counters for all, favorite, and uncollected bookmarks.
+func (s *Store) GetWorkspaceStats(ctx context.Context, workspaceID string) (domain.WorkspaceStats, error) {
+	var stats domain.WorkspaceStats
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(1),
+			COALESCE(SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN collection_id IS NULL THEN 1 ELSE 0 END), 0)
+		FROM bookmarks
+		WHERE workspace_id = ?
+	`, workspaceID).Scan(&stats.AllCount, &stats.FavoriteCount, &stats.UncollectedCount)
+	return stats, err
+}
+
 // SearchBookmarks executes Korean hybrid search (FTS5 trigram for 3+ chars, compact substring/chosung for 1-2 chars)
 // combined with operator filters.
 func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (store.SearchResult, error) {
@@ -290,6 +304,18 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 	if query.Collection != "" {
 		where = append(where, "EXISTS (SELECT 1 FROM collections c WHERE c.id = b.collection_id AND LOWER(c.name) = LOWER(?))")
 		args = append(args, query.Collection)
+	}
+	if query.DateExact != "" {
+		where = append(where, "b.created_at LIKE ?")
+		args = append(args, query.DateExact+"%")
+	}
+	if query.DateAfter != "" {
+		where = append(where, "b.created_at >= ?")
+		args = append(args, query.DateAfter)
+	}
+	if query.DateBefore != "" {
+		where = append(where, "b.created_at <= ?")
+		args = append(args, query.DateBefore+"T23:59:59.999999999Z")
 	}
 	for _, d := range query.Domains {
 		d = strings.ToLower(strings.TrimSpace(d))

@@ -9,6 +9,7 @@ import type {
   UserSettings,
   Workspace,
   WorkspaceMember,
+  WorkspaceStats,
 } from '../types/bookmark';
 
 export class ApiError extends Error {
@@ -210,4 +211,7 @@ export const api = {
 
   listTags: (wsID: string) =>
     request<{ items: TagSummary[] }>(`/api/v1/workspaces/${wsID}/tags`),
+
+  getStats: (wsID: string) =>
+    request<WorkspaceStats>(`/api/v1/workspaces/${wsID}/stats`),
 };

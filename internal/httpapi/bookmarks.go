@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -77,7 +78,12 @@ func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	normalizedURL, hostDomain, err := urlutil.Normalize(req.URL)
+	targetURL, err := urlutil.EnsureScheme(req.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "valid http/https url is required")
+		return
+	}
+	normalizedURL, hostDomain, err := urlutil.Normalize(targetURL)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "valid http/https url is required")
 		return
@@ -87,7 +93,7 @@ func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request
 	description := strings.TrimSpace(req.Description)
 	faviconURL := ""
 	if title == "" || description == "" {
-		meta := urlutil.FetchMetadata(r.Context(), req.URL)
+		meta := urlutil.FetchMetadata(r.Context(), targetURL)
 		if title == "" {
 			title = meta.Title
 		}
@@ -95,6 +101,11 @@ func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request
 			description = meta.Description
 		}
 		faviconURL = meta.FaviconURL
+	}
+	if faviconURL == "" {
+		if parsed, pErr := url.Parse(targetURL); pErr == nil && parsed.Host != "" {
+			faviconURL = parsed.Scheme + "://" + parsed.Host + "/favicon.ico"
+		}
 	}
 	if title == "" {
 		title = hostDomain
@@ -104,7 +115,7 @@ func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request
 		WorkspaceID:    wsID,
 		CollectionID:   req.CollectionID,
 		CreatedBy:      user.ID,
-		URL:            strings.TrimSpace(req.URL),
+		URL:            targetURL,
 		NormalizedURL:  normalizedURL,
 		Domain:         hostDomain,
 		Title:          title,
@@ -187,13 +198,17 @@ func (a *apiHandler) handleUpdateBookmark(w http.ResponseWriter, r *http.Request
 	}
 
 	if u, ok := raw["url"].(string); ok && strings.TrimSpace(u) != "" {
-		norm, dom, err := urlutil.Normalize(u)
+		fixedURL, err := urlutil.EnsureScheme(u)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "valid http/https url is required")
 			return
 		}
-		trimmed := strings.TrimSpace(u)
-		input.URL = &trimmed
+		norm, dom, err := urlutil.Normalize(fixedURL)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "valid http/https url is required")
+			return
+		}
+		input.URL = &fixedURL
 		input.NormalizedURL = &norm
 		input.Domain = &dom
 	}
@@ -266,4 +281,17 @@ func (a *apiHandler) handleListTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (a *apiHandler) handleGetWorkspaceStats(w http.ResponseWriter, r *http.Request) {
+	wsID := chi.URLParam(r, "wsID")
+	if !a.authorizeWorkspace(w, r, wsID, domain.RoleViewer) {
+		return
+	}
+	stats, err := a.store.GetWorkspaceStats(r.Context(), wsID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load workspace stats")
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }

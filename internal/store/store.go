@@ -39,6 +39,9 @@ type SearchQuery struct {
 	ExcludeTags  []string
 	Domains      []string
 	Collection   string
+	DateExact    string
+	DateAfter    string
+	DateBefore   string
 	OnlyFavorite *bool
 	LinkStatus   *domain.LinkStatus
 	Sort         string // newest, oldest, title
@@ -150,6 +153,7 @@ type Store interface {
 	UpdateBookmark(ctx context.Context, input UpdateBookmarkInput) (domain.Bookmark, error)
 	DeleteBookmark(ctx context.Context, workspaceID, bookmarkID string) error
 	ListTags(ctx context.Context, workspaceID string) ([]domain.TagSummary, error)
+	GetWorkspaceStats(ctx context.Context, workspaceID string) (domain.WorkspaceStats, error)
 	SearchBookmarks(ctx context.Context, query SearchQuery) (SearchResult, error)
 }
 

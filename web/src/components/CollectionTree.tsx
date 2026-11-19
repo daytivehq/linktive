@@ -1,32 +1,52 @@
-import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, FolderPlus, Pencil, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, FolderPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { Collection } from '../types/bookmark';
 import { CollectionIcon } from './IconPicker';
 
+export const MIME_COLLECTION_DRAG = 'application/x-linktive-collection';
+export const MIME_BOOKMARK_DRAG = 'application/x-linktive-bookmark';
+
 interface CollectionTreeProps {
   collections: Collection[];
-  selectedScope: string;
+  activeCollectionId?: string;
   canEdit: boolean;
   onSelect: (id: string) => void;
   onCreateChild: (parentId: string | null) => void;
   onEdit: (col: Collection) => void;
   onDelete: (col: Collection) => void;
-  onMove: (colId: string, newParentId: string | null) => void;
+  onMoveCollection: (colId: string, newParentId: string | null) => void;
+  onDropBookmark: (bookmarkId: string, targetCollectionId: string) => void;
 }
 
 export function CollectionTree({
   collections,
-  selectedScope,
+  activeCollectionId,
   canEdit,
   onSelect,
   onCreateChild,
   onEdit,
   onDelete,
-  onMove,
+  onMoveCollection,
+  onDropBookmark,
 }: CollectionTreeProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [draggingColId, setDraggingColId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenMenuId(null);
+    };
+    const onClickOutside = () => setOpenMenuId(null);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('click', onClickOutside);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('click', onClickOutside);
+    };
+  }, [openMenuId]);
 
   const childrenMap = useMemo(() => {
     const map = new Map<string, Collection[]>();
@@ -52,25 +72,31 @@ export function CollectionTree({
     return nodes.map((col) => {
       const children = childrenMap.get(col.id) ?? [];
       const isExpanded = expanded[col.id] ?? true;
-      const isSelected = selectedScope === col.id;
-      const isDragOver = dragOverId === col.id && draggingId !== col.id;
+      const isSelected = activeCollectionId === col.id;
+      const isDragOver = dragOverId === col.id && draggingColId !== col.id;
+      const isMenuOpen = openMenuId === col.id;
 
       return (
-        <div key={col.id}>
+        <div key={col.id} className="relative">
           <div
             draggable={canEdit}
             onDragStart={(e) => {
               if (!canEdit) return;
-              setDraggingId(col.id);
-              e.dataTransfer.setData('text/plain', col.id);
+              setDraggingColId(col.id);
+              e.dataTransfer.setData(MIME_COLLECTION_DRAG, col.id);
               e.dataTransfer.effectAllowed = 'move';
             }}
             onDragEnd={() => {
-              setDraggingId(null);
+              setDraggingColId(null);
               setDragOverId(null);
             }}
             onDragOver={(e) => {
-              if (!canEdit || !draggingId || draggingId === col.id) return;
+              if (!canEdit) return;
+              const types = Array.from(e.dataTransfer.types);
+              if (!types.includes(MIME_COLLECTION_DRAG) && !types.includes(MIME_BOOKMARK_DRAG)) {
+                return;
+              }
+              if (draggingColId === col.id) return;
               e.preventDefault();
               setDragOverId(col.id);
             }}
@@ -80,15 +106,22 @@ export function CollectionTree({
             onDrop={(e) => {
               if (!canEdit) return;
               e.preventDefault();
-              const sourceId = e.dataTransfer.getData('text/plain') || draggingId;
-              setDraggingId(null);
               setDragOverId(null);
-              if (sourceId && sourceId !== col.id) {
-                onMove(sourceId, col.id);
+
+              const bookmarkId = e.dataTransfer.getData(MIME_BOOKMARK_DRAG);
+              if (bookmarkId) {
+                onDropBookmark(bookmarkId, col.id);
+                return;
+              }
+
+              const sourceColId = e.dataTransfer.getData(MIME_COLLECTION_DRAG) || draggingColId;
+              setDraggingColId(null);
+              if (sourceColId && sourceColId !== col.id) {
+                onMoveCollection(sourceColId, col.id);
               }
             }}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
-            className={`group flex items-center justify-between rounded-lg pr-1.5 py-1 text-sm transition ${
+            className={`group flex items-center justify-between rounded-lg py-1 pr-1.5 text-sm transition ${
               isDragOver
                 ? 'bg-sky-100 ring-1 ring-sky-400'
                 : isSelected
@@ -117,38 +150,70 @@ export function CollectionTree({
               </button>
             </div>
 
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1">
               {canEdit && (
-                <div className="hidden items-center gap-0.5 group-hover:flex">
-                  <button
-                    type="button"
-                    onClick={() => onCreateChild(col.id)}
-                    title="하위 컬렉션 추가"
-                    className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                  >
-                    <FolderPlus className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onEdit(col)}
-                    title="컬렉션 수정"
-                    className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(col)}
-                    title="컬렉션 삭제"
-                    className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-600"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenuId((prev) => (prev === col.id ? null : col.id));
+                  }}
+                  aria-label="컬렉션 메뉴"
+                  className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
+                    isMenuOpen ? 'block bg-white text-slate-700' : 'hidden group-hover:block'
+                  }`}
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
               )}
-              <span className="ml-1 text-xs text-slate-400 group-hover:hidden">{col.bookmark_count}</span>
+              <span className={`text-xs text-slate-400 ${canEdit ? 'group-hover:hidden' : ''} ${isMenuOpen ? 'hidden' : ''}`}>
+                {col.bookmark_count}
+              </span>
             </div>
           </div>
+
+          {isMenuOpen && canEdit && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute right-1 top-8 z-30 w-40 rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenMenuId(null);
+                  onCreateChild(col.id);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
+              >
+                <FolderPlus className="h-3.5 w-3.5 text-slate-500" />
+                <span>하위 컬렉션 추가</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenMenuId(null);
+                  onEdit(col);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
+              >
+                <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                <span>수정</span>
+              </button>
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenMenuId(null);
+                  onDelete(col);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-rose-600 hover:bg-rose-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>삭제</span>
+              </button>
+            </div>
+          )}
+
           {children.length > 0 && isExpanded && renderBranch(col.id, depth + 1)}
         </div>
       );
@@ -163,7 +228,7 @@ export function CollectionTree({
         renderBranch('__root__', 0)
       )}
 
-      {canEdit && draggingId && (
+      {canEdit && draggingColId && (
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -174,10 +239,10 @@ export function CollectionTree({
           }}
           onDrop={(e) => {
             e.preventDefault();
-            const sourceId = e.dataTransfer.getData('text/plain') || draggingId;
-            setDraggingId(null);
+            const sourceId = e.dataTransfer.getData(MIME_COLLECTION_DRAG) || draggingColId;
+            setDraggingColId(null);
             setDragOverId(null);
-            if (sourceId) onMove(sourceId, null);
+            if (sourceId) onMoveCollection(sourceId, null);
           }}
           className={`mt-2 rounded-lg border border-dashed px-2.5 py-1.5 text-center text-xs ${
             dragOverId === '__root__'

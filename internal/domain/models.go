@@ -135,6 +135,13 @@ type TagSummary struct {
 	Count int    `json:"count"`
 }
 
+// WorkspaceStats holds sidebar bookmark counters for a workspace.
+type WorkspaceStats struct {
+	AllCount         int `json:"all_count"`
+	FavoriteCount    int `json:"favorite_count"`
+	UncollectedCount int `json:"uncollected_count"`
+}
+
 // SavedFilter stores a reusable search/filter expression in the sidebar.
 type SavedFilter struct {
 	ID          string    `json:"id"`

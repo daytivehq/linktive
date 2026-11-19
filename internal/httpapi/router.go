@@ -61,6 +61,7 @@ func NewRouter(st store.Store, staticFS fs.FS) http.Handler {
 				ws.Delete("/bookmarks/{bmID}", h.handleDeleteBookmark)
 
 				ws.Get("/tags", h.handleListTags)
+				ws.Get("/stats", h.handleGetWorkspaceStats)
 			})
 		})
 	})

@@ -3,6 +3,7 @@ package urlutil
 import (
 	"context"
 	"errors"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +19,7 @@ var (
 
 	titleRegex = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 	metaRegex  = regexp.MustCompile(`(?is)<meta\s+([^>]+)>`)
+	linkRegex  = regexp.MustCompile(`(?is)<link\s+([^>]+)>`)
 	attrRegex  = regexp.MustCompile(`(?is)([a-zA-Z0-9:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 )
 
@@ -28,13 +30,31 @@ type Metadata struct {
 	FaviconURL  string
 }
 
-// Normalize validates an HTTP(S) URL and returns a canonical string for duplicate detection plus domain.
-func Normalize(raw string) (normalized string, domain string, err error) {
+// EnsureScheme prepends https:// when the input lacks a URL scheme.
+func EnsureScheme(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", "", ErrInvalidURL
+		return "", ErrInvalidURL
 	}
-	u, err := url.Parse(trimmed)
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "javascript:") || strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "file:") {
+		return "", ErrInvalidURL
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "https://" + trimmed
+	}
+	return trimmed, nil
+}
+
+// Normalize validates an HTTP(S) URL (prepending https:// if missing) and returns
+// the canonical URL for duplicate detection plus host domain.
+func Normalize(raw string) (normalized string, domain string, err error) {
+	withScheme, err := EnsureScheme(raw)
+	if err != nil {
+		return "", "", err
+	}
+
+	u, err := url.Parse(withScheme)
 	if err != nil || u.Host == "" {
 		return "", "", ErrInvalidURL
 	}
@@ -44,6 +64,9 @@ func Normalize(raw string) (normalized string, domain string, err error) {
 	}
 
 	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return "", "", ErrInvalidURL
+	}
 	port := u.Port()
 	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
 		port = ""
@@ -66,7 +89,6 @@ func Normalize(raw string) (normalized string, domain string, err error) {
 		u.Path = ""
 	}
 
-	// Strip common tracking query parameters while keeping meaningful ones sorted.
 	q := u.Query()
 	for key := range q {
 		lk := strings.ToLower(key)
@@ -96,14 +118,20 @@ func Normalize(raw string) (normalized string, domain string, err error) {
 	return u.String(), host, nil
 }
 
-// FetchMetadata best-effort downloads page title and description with strict timeout and byte limit.
+// FetchMetadata best-effort downloads page title, description, and favicon URL.
 func FetchMetadata(ctx context.Context, targetURL string) Metadata {
+	var meta Metadata
+	baseURL, err := url.Parse(targetURL)
+	if err == nil && baseURL.Host != "" {
+		meta.FaviconURL = baseURL.Scheme + "://" + baseURL.Host + "/favicon.ico"
+	}
+
 	reqCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return Metadata{}
+		return meta
 	}
 	req.Header.Set("User-Agent", "linktive-bot/0.1 (+https://github.com/linktive/linktive)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
@@ -111,30 +139,32 @@ func FetchMetadata(ctx context.Context, targetURL string) Metadata {
 	client := &http.Client{Timeout: 4 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Metadata{}
+		return meta
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.Request != nil && resp.Request.URL != nil {
+		baseURL = resp.Request.URL
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return Metadata{}
+		return meta
 	}
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
 	if err != nil {
-		return Metadata{}
+		return meta
 	}
-	html := string(bodyBytes)
+	pageHTML := string(bodyBytes)
 
-	var meta Metadata
-	if m := titleRegex.FindStringSubmatch(html); len(m) > 1 {
-		meta.Title = cleanText(m[1])
+	if m := titleRegex.FindStringSubmatch(pageHTML); len(m) > 1 {
+		meta.Title = cleanText(html.UnescapeString(m[1]))
 	}
 
-	for _, tag := range metaRegex.FindAllStringSubmatch(html, -1) {
+	for _, tag := range metaRegex.FindAllStringSubmatch(pageHTML, -1) {
 		attrs := parseAttrs(tag[1])
 		prop := strings.ToLower(attrs["property"])
 		name := strings.ToLower(attrs["name"])
-		content := cleanText(attrs["content"])
+		content := cleanText(html.UnescapeString(attrs["content"]))
 		if content == "" {
 			continue
 		}
@@ -146,11 +176,32 @@ func FetchMetadata(ctx context.Context, targetURL string) Metadata {
 		}
 	}
 
-	if parsed, err := url.Parse(targetURL); err == nil && parsed.Host != "" {
-		meta.FaviconURL = parsed.Scheme + "://" + parsed.Host + "/favicon.ico"
+	if iconHref := extractFaviconHref(pageHTML); iconHref != "" && baseURL != nil {
+		if ref, err := url.Parse(iconHref); err == nil {
+			meta.FaviconURL = baseURL.ResolveReference(ref).String()
+		}
 	}
 
 	return meta
+}
+
+func extractFaviconHref(pageHTML string) string {
+	var fallback string
+	for _, tag := range linkRegex.FindAllStringSubmatch(pageHTML, -1) {
+		attrs := parseAttrs(tag[1])
+		rel := strings.ToLower(attrs["rel"])
+		href := strings.TrimSpace(html.UnescapeString(attrs["href"]))
+		if href == "" {
+			continue
+		}
+		if rel == "icon" || rel == "shortcut icon" {
+			return href
+		}
+		if strings.Contains(rel, "icon") && fallback == "" {
+			fallback = href
+		}
+	}
+	return fallback
 }
 
 func parseAttrs(raw string) map[string]string {
