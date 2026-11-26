@@ -225,3 +225,59 @@ func TestArchiveRecoveryAndAccountRemoval(t *testing.T) {
 		})
 	}
 }
+
+func TestLegacyArchiveMoveRetriesWithoutLosingSource(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	owner, from, err := st.CreateUserWithPersonalWorkspace(ctx, "owner@example.invalid", "owner", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to, err := st.CreateSharedWorkspace(ctx, owner.ID, "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bm, err := st.CreateBookmark(ctx, store.CreateBookmarkInput{WorkspaceID: from.ID, CreatedBy: owner.ID, URL: "https://example.invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ar := domain.BookmarkArchive{WorkspaceID: from.ID, BookmarkID: bm.ID, CreatedBy: owner.ID, Status: "ready", ContentText: "preserved article"}
+	if err := st.UpsertBookmarkArchive(ctx, ar); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, "UPDATE bookmarks SET workspace_id=? WHERE id=?", to.ID, bm.ID); err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	remove := func(ws, id string) {
+		if ws != from.ID || id != bm.ID {
+			t.Fatal("unexpected cleanup")
+		}
+		removed = true
+	}
+	err = st.RepairMovedArchives(ctx, func(string, string, string) error { return errors.New("disk full") }, remove)
+	if err == nil || removed {
+		t.Fatal("failed copy removed source")
+	}
+	err = st.RepairMovedArchives(ctx, func(src, dst, id string) error {
+		if src != from.ID || dst != to.ID || id != bm.ID {
+			t.Fatal("wrong archive")
+		}
+		return nil
+	}, remove)
+	if err != nil || !removed {
+		t.Fatal("move not completed", err)
+	}
+	repaired, err := st.GetBookmarkArchive(ctx, to.ID, bm.ID)
+	if err != nil || repaired.CreatedBy != owner.ID || repaired.ContentText != ar.ContentText {
+		t.Fatal("content or ownership changed", err)
+	}
+	err = st.RepairMovedArchives(ctx, func(string, string, string) error { t.Fatal("duplicate repair"); return nil }, remove)
+	if err != nil {
+		t.Fatal(err)
+	}
+}

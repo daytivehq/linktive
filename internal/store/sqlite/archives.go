@@ -113,6 +113,61 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 	return tx.Commit()
 }
 
+func moveArchive(ctx context.Context, tx *sql.Tx, from, to, id string) error {
+	prefix := func(ws string) string { return "/api/v1/workspaces/" + ws + "/bookmarks/" + id + "/assets/" }
+	if _, err := tx.ExecContext(ctx, `UPDATE bookmark_archives SET workspace_id=?,
+		content_html=replace(content_html,?,?), snapshot_html=replace(snapshot_html,?,?)
+		WHERE bookmark_id=? AND workspace_id=?`, to, prefix(from), prefix(to), prefix(from), prefix(to), id, from); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE bookmark_archives_fts SET workspace_id=? WHERE bookmark_id=? AND workspace_id=?`, to, id, from)
+	return err
+}
+
+// RepairMovedArchives reunites pre-upgrade archive rows with their bookmarks.
+// The source stays intact until the destination files and transaction are ready.
+// Run during startup, before serving requests or starting background workers.
+func (s *Store) RepairMovedArchives(ctx context.Context, copyFiles func(string, string, string) error, removeFiles func(string, string)) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT ar.workspace_id,b.workspace_id,b.id
+		FROM bookmark_archives ar JOIN bookmarks b ON b.id=ar.bookmark_id WHERE ar.workspace_id<>b.workspace_id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type move struct{ from, to, id string }
+	var moves []move
+	for rows.Next() {
+		var m move
+		if err := rows.Scan(&m.from, &m.to, &m.id); err != nil {
+			return err
+		}
+		moves = append(moves, m)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	var failures []error
+	for _, m := range moves {
+		if err := copyFiles(m.from, m.to, m.id); err != nil {
+			failures = append(failures, fmt.Errorf("copy archive %s: %w", m.id, err))
+			continue
+		}
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if err := moveArchive(ctx, tx, m.from, m.to, m.id); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		removeFiles(m.from, m.id)
+	}
+	return errors.Join(failures...)
+}
+
 func (s *Store) RecoverInterruptedClips(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE bookmark_archives SET status='failed',error_message='Clipping interrupted; retry to archive this page.',updated_at=? WHERE status='pending'`, formatTime(time.Now().UTC()))
 	return err
@@ -126,8 +181,8 @@ func (s *Store) GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID 
 		SELECT bookmark_id, workspace_id, created_by, source, archive_mode, status, error_message,
 		       title, byline, site_name, content_html, snapshot_html, content_text,
 		       asset_count, total_bytes, archived_at, updated_at
-		FROM bookmark_archives
-		WHERE bookmark_id = ? AND workspace_id = ?
+		FROM bookmark_archives ar
+		WHERE bookmark_id = ? AND workspace_id = ? AND EXISTS (SELECT 1 FROM bookmarks b WHERE b.id=ar.bookmark_id AND b.workspace_id=ar.workspace_id)
 	`, bookmarkID, workspaceID).Scan(
 		&ar.BookmarkID, &ar.WorkspaceID, &ar.CreatedBy, &ar.Source, &ar.ArchiveMode, &ar.Status, &ar.ErrorMessage,
 		&ar.Title, &ar.Byline, &ar.SiteName, &ar.ContentHTML, &ar.SnapshotHTML, &ar.ContentText,

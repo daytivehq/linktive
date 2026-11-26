@@ -40,9 +40,15 @@ func main() {
 		log.Fatalf("recover interrupted archives: %v", err)
 	}
 	backupDone := make(chan struct{})
-	go func() { defer close(backupDone); backupMgr.StartScheduler(ctx) }()
 
 	clipMgr := clipper.NewManager(st, filepath.Join(cfg.DataDir, "assets"), cfg.DBPath, backupsDir)
+	if err := st.RepairMovedArchives(ctx, clipMgr.CopyBookmarkAssets, clipMgr.DeleteBookmarkAssets); err != nil {
+		log.Printf("archive move recovery: %v", err)
+	}
+	go func() {
+		defer close(backupDone)
+		backupMgr.StartScheduler(ctx)
+	}()
 	clipMgr.Start(ctx)
 
 	staticFS, err := webembed.DistFS()

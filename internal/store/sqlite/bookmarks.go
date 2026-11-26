@@ -200,12 +200,7 @@ func (s *Store) UpdateBookmark(ctx context.Context, input store.UpdateBookmarkIn
 		if err := checkArchiveAccess(ctx, tx, input.WorkspaceID, cur.ID, input.ActorID); err != nil {
 			return domain.Bookmark{}, err
 		}
-		oldPrefix := "/api/v1/workspaces/" + input.WorkspaceID + "/bookmarks/" + cur.ID + "/assets/"
-		newPrefix := "/api/v1/workspaces/" + cur.WorkspaceID + "/bookmarks/" + cur.ID + "/assets/"
-		if _, err := tx.ExecContext(ctx, `UPDATE bookmark_archives SET workspace_id=?,content_html=replace(content_html,?,?),snapshot_html=replace(snapshot_html,?,?) WHERE bookmark_id=? AND workspace_id=?`, cur.WorkspaceID, oldPrefix, newPrefix, oldPrefix, newPrefix, cur.ID, input.WorkspaceID); err != nil {
-			return domain.Bookmark{}, err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE bookmark_archives_fts SET workspace_id=? WHERE bookmark_id=? AND workspace_id=?`, cur.WorkspaceID, cur.ID, input.WorkspaceID); err != nil {
+		if err := moveArchive(ctx, tx, input.WorkspaceID, cur.WorkspaceID, cur.ID); err != nil {
 			return domain.Bookmark{}, err
 		}
 	}
