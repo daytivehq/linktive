@@ -42,6 +42,7 @@ func NormalizeArchiveMode(mode string) string {
 }
 
 type clipJob struct {
+	revision    string
 	workspaceID string
 	bookmarkID  string
 	createdBy   string
@@ -51,8 +52,9 @@ type clipJob struct {
 
 // ClipOptions configures clipping mode and incremental merge behavior.
 type ClipOptions struct {
-	Mode  string
-	Merge bool
+	queuedRevision string
+	Mode           string
+	Merge          bool
 }
 
 // Manager handles readable/snapshot web page clipping, local asset caching, size limit enforcement, and cleanup.
@@ -157,7 +159,7 @@ func (m *Manager) Start(ctx context.Context) {
 					return
 				case job := <-m.queue:
 					jobCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
-					_, _ = m.ClipURLWithMode(jobCtx, job.workspaceID, job.bookmarkID, job.createdBy, job.url, job.mode)
+					_, _ = m.ClipURLWithOptions(jobCtx, job.workspaceID, job.bookmarkID, job.createdBy, job.url, ClipOptions{Mode: job.mode, queuedRevision: job.revision})
 					cancel()
 				}
 			}
@@ -167,30 +169,38 @@ func (m *Manager) Start(ctx context.Context) {
 
 func (m *Manager) Wait() { m.workers.Wait() }
 
-// EnqueueClip schedules an asynchronous readable background archive job for a newly created bookmark.
-func (m *Manager) EnqueueClip(ctx context.Context, workspaceID, bookmarkID, createdBy, targetURL string) {
-	m.EnqueueClipWithMode(ctx, workspaceID, bookmarkID, createdBy, targetURL, ModeReadable)
-}
-
 // EnqueueClipWithMode schedules an asynchronous background archive job using the requested archive mode.
-func (m *Manager) EnqueueClipWithMode(ctx context.Context, workspaceID, bookmarkID, createdBy, targetURL, mode string) {
+func (m *Manager) EnqueueClipWithMode(ctx context.Context, workspaceID, bookmarkID, createdBy, targetURL, mode string) string {
+	unlock := m.LockAssets()
+	defer unlock()
 	normMode := NormalizeArchiveMode(mode)
-	_ = m.store.UpsertBookmarkArchive(ctx, domain.BookmarkArchive{
+	if err := m.store.UpsertBookmarkArchive(ctx, domain.BookmarkArchive{
 		BookmarkID:  bookmarkID,
 		WorkspaceID: workspaceID,
 		CreatedBy:   createdBy,
 		Source:      "server",
 		ArchiveMode: normMode,
 		Status:      "pending",
-	})
+	}); err != nil {
+		return "failed"
+	}
+	ar, err := m.store.GetBookmarkArchive(ctx, workspaceID, bookmarkID)
+	if err != nil {
+		return "failed"
+	}
+	if ar.Status != "pending" {
+		return ar.Status
+	}
 	select {
 	case m.queue <- clipJob{
+		revision:    ar.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		workspaceID: workspaceID,
 		bookmarkID:  bookmarkID,
 		createdBy:   createdBy,
 		url:         targetURL,
 		mode:        normMode,
 	}:
+		return "pending"
 	default:
 		_ = m.store.UpsertBookmarkArchive(ctx, domain.BookmarkArchive{
 			BookmarkID:   bookmarkID,
@@ -201,6 +211,7 @@ func (m *Manager) EnqueueClipWithMode(ctx context.Context, workspaceID, bookmark
 			Status:       "failed",
 			ErrorMessage: "clip queue is busy; please retry manually",
 		})
+		return "failed"
 	}
 }
 
@@ -234,9 +245,15 @@ func (m *Manager) ClipURLWithMode(ctx context.Context, workspaceID, bookmarkID, 
 func (m *Manager) ClipURLWithOptions(ctx context.Context, workspaceID, bookmarkID, createdBy, targetURL string, opts ClipOptions) (domain.BookmarkArchive, error) {
 	revision, release, err := m.beginClip(ctx, workspaceID, bookmarkID)
 	if err != nil {
+		if opts.queuedRevision != "" {
+			m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, opts.queuedRevision, "server", err.Error())
+		}
 		return domain.BookmarkArchive{}, err
 	}
 	defer release()
+	if opts.queuedRevision != "" && opts.queuedRevision != revision {
+		return domain.BookmarkArchive{}, store.ErrAlreadyExists
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, revision, "server", err.Error()), err

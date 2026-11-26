@@ -132,6 +132,12 @@ func (a *apiHandler) handleArchiveBookmark(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	select {
+	case a.clipRequests <- struct{}{}:
+		defer func() { <-a.clipRequests }()
+	case <-r.Context().Done():
+		return
+	}
 	if !a.checkArchiveWrite(w, r, wsID, bmID) {
 		return
 	}

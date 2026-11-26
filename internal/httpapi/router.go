@@ -17,10 +17,11 @@ import (
 )
 
 type apiHandler struct {
-	authState authState
-	store     store.Store
-	backup    *backup.Manager
-	clipper   *clipper.Manager
+	clipRequests chan struct{}
+	authState    authState
+	store        store.Store
+	backup       *backup.Manager
+	clipper      *clipper.Manager
 }
 
 func (a *apiHandler) withArchiveFiles(next http.Handler) http.Handler {
@@ -52,7 +53,7 @@ func WithClipper(m *clipper.Manager) RouterOption {
 
 // NewRouter builds the HTTP router for API endpoints and embedded SPA static assets.
 func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handler {
-	h := &apiHandler{store: st}
+	h := &apiHandler{store: st, clipRequests: make(chan struct{}, 2)}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(h)

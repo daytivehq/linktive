@@ -189,8 +189,7 @@ func (a *apiHandler) createBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		if strings.TrimSpace(req.ClipFormat) != "" {
 			format = req.ClipFormat
 		}
-		a.clipper.EnqueueClipWithMode(r.Context(), wsID, bm.ID, user.ID, bm.URL, format)
-		bm.ArchiveStatus = "pending"
+		bm.ArchiveStatus = a.clipper.EnqueueClipWithMode(r.Context(), wsID, bm.ID, user.ID, bm.URL, format)
 	}
 
 	writeJSON(w, http.StatusCreated, bm)

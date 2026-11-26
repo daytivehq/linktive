@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os/signal"
 	"path/filepath"
@@ -57,7 +58,8 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr: cfg.Addr,
+		Addr:        cfg.Addr,
+		BaseContext: func(net.Listener) context.Context { return ctx },
 		Handler: httpapi.NewRouter(
 			st,
 			staticFS,
