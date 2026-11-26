@@ -4,6 +4,12 @@ export type SortOrder = 'relevance' | 'newest' | 'oldest' | 'title';
 
 export type ClickAction = 'current_tab' | 'new_tab' | 'detail_panel';
 
+export type ClipOnSaveMode = 'manual' | 'auto';
+
+export type ClipFormat = 'readable' | 'html' | 'both';
+
+export type ArchiveShareScope = 'owner_only' | 'shared_members';
+
 export interface VisibleFields {
   thumbnail: boolean;
   title: boolean;
@@ -17,6 +23,10 @@ export interface UserSettings {
   click_action: ClickAction;
   view_mode: ViewMode;
   include_subcollections: boolean;
+  clip_on_save: ClipOnSaveMode;
+  clip_format: ClipFormat;
+  search_archive_content: boolean;
+  archive_share_scope: ArchiveShareScope;
   visible_fields: VisibleFields;
 }
 
@@ -24,6 +34,10 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   click_action: 'new_tab',
   view_mode: 'list',
   include_subcollections: false,
+  clip_on_save: 'manual',
+  clip_format: 'readable',
+  search_archive_content: true,
+  archive_share_scope: 'owner_only',
   visible_fields: {
     thumbnail: true,
     title: true,
@@ -158,9 +172,61 @@ export interface Bookmark {
   is_favorite: boolean;
   link_status: LinkStatus;
   last_checked_at?: string | null;
+  archive_status?: 'pending' | 'ready' | 'failed';
+  archive_bytes?: number;
   tags: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface BookmarkArchive {
+  bookmark_id: string;
+  workspace_id: string;
+  created_by: string;
+  source: string;
+  archive_mode: ClipFormat;
+  status: 'pending' | 'ready' | 'failed';
+  error_message?: string;
+  title: string;
+  byline?: string;
+  site_name?: string;
+  content_html: string;
+  snapshot_html: string;
+  content_text: string;
+  asset_count: number;
+  total_bytes: number;
+  archived_at: string;
+  updated_at: string;
+}
+
+export interface ArchivePolicy {
+  limit_enabled: boolean;
+  max_asset_mb: number;
+  max_bookmark_mb: number;
+}
+
+export interface WorkspaceUsage {
+  workspace_id: string;
+  bookmark_count: number;
+  tag_count: number;
+  collection_count: number;
+  archived_count: number;
+  archive_asset_count: number;
+  archive_bytes: number;
+}
+
+export interface AdminUsage {
+  total_users: number;
+  total_workspaces: number;
+  total_bookmarks: number;
+  total_tags: number;
+  total_archived: number;
+  db_size_bytes: number;
+  assets_size_bytes: number;
+  assets_file_count: number;
+  backups_size_bytes: number;
+  backups_file_count: number;
+  archive_policy: ArchivePolicy;
 }
 
 export interface TagSummary {
@@ -238,6 +304,12 @@ export function parseUserSettings(raw?: string): UserSettings {
       view_mode: parsed.view_mode ?? DEFAULT_USER_SETTINGS.view_mode,
       include_subcollections:
         parsed.include_subcollections ?? DEFAULT_USER_SETTINGS.include_subcollections,
+      clip_on_save: parsed.clip_on_save ?? DEFAULT_USER_SETTINGS.clip_on_save,
+      clip_format: parsed.clip_format ?? DEFAULT_USER_SETTINGS.clip_format,
+      search_archive_content:
+        parsed.search_archive_content ?? DEFAULT_USER_SETTINGS.search_archive_content,
+      archive_share_scope:
+        parsed.archive_share_scope ?? DEFAULT_USER_SETTINGS.archive_share_scope,
       visible_fields: {
         ...DEFAULT_USER_SETTINGS.visible_fields,
         ...(parsed.visible_fields ?? {}),

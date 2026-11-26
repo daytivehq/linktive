@@ -45,9 +45,10 @@ type SearchQuery struct {
 	DateExact    string
 	DateAfter    string
 	DateBefore   string
-	OnlyFavorite *bool
-	LinkStatus   *domain.LinkStatus
-	Sort         string // newest, oldest, title
+	OnlyFavorite          *bool
+	LinkStatus            *domain.LinkStatus
+	IncludeArchiveContent bool
+	Sort                  string // newest, oldest, title
 	Limit        int
 	Offset       int
 }
@@ -220,6 +221,17 @@ type Store interface {
 	GetBackupSettings(ctx context.Context) (domain.AutoBackupSettings, error)
 	SaveBackupSettings(ctx context.Context, cfg domain.AutoBackupSettings) error
 	BackupTo(ctx context.Context, destPath string) error
+
+	// Web Clipper Archives, Policies & Usage
+	UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArchive) error
+	GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) (domain.BookmarkArchive, error)
+	DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) error
+	ClearWorkspaceArchives(ctx context.Context, workspaceID string) (int64, error)
+	ArchiveExists(ctx context.Context, workspaceID, bookmarkID string) (bool, error)
+	GetArchivePolicy(ctx context.Context) (domain.ArchivePolicy, error)
+	SaveArchivePolicy(ctx context.Context, policy domain.ArchivePolicy) error
+	GetWorkspaceUsage(ctx context.Context, workspaceID string) (domain.WorkspaceUsage, error)
+	GetAdminUsageSummary(ctx context.Context) (domain.AdminUsage, error)
 }
 
 // SearchProvider abstracts bookmark full-text and Korean substring search.

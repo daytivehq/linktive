@@ -61,6 +61,9 @@ func buildSearchQuery(r *http.Request, wsID string) store.SearchQuery {
 			sq.LinkStatus = &ls
 		}
 	}
+	if qp.Get("search_archive") == "true" || qp.Get("search_archive") == "1" {
+		sq.IncludeArchiveContent = true
+	}
 	if limit, err := strconv.Atoi(qp.Get("limit")); err == nil && limit > 0 {
 		sq.Limit = limit
 	}
@@ -79,6 +82,8 @@ type createBookmarkRequest struct {
 	Tags           []string `json:"tags"`
 	IsFavorite     bool     `json:"is_favorite"`
 	AllowDuplicate bool     `json:"allow_duplicate"`
+	ClipNow        *bool    `json:"clip_now"`
+	ClipFormat     string   `json:"clip_format"`
 }
 
 func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +166,20 @@ func (a *apiHandler) createBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, "failed to create bookmark")
 		return
 	}
+
+	shouldClip := parseUserClipMode(user) == "auto"
+	if req.ClipNow != nil {
+		shouldClip = *req.ClipNow
+	}
+	if shouldClip && a.clipper != nil {
+		format := parseUserClipFormat(user)
+		if strings.TrimSpace(req.ClipFormat) != "" {
+			format = req.ClipFormat
+		}
+		a.clipper.EnqueueClipWithMode(r.Context(), wsID, bm.ID, user.ID, bm.URL, format)
+		bm.ArchiveStatus = "pending"
+	}
+
 	writeJSON(w, http.StatusCreated, bm)
 }
 
@@ -291,6 +310,9 @@ func (a *apiHandler) handleDeleteBookmark(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to delete bookmark")
 		return
 	}
+	if a.clipper != nil {
+		a.clipper.DeleteBookmarkAssets(wsID, bmID)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -349,6 +371,11 @@ func (a *apiHandler) handleBulkBookmarks(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "bulk operation failed")
 		return
+	}
+	if req.Action == "delete" && a.clipper != nil {
+		for _, bmID := range req.BookmarkIDs {
+			a.clipper.DeleteBookmarkAssets(wsID, bmID)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"affected": affected})
 }

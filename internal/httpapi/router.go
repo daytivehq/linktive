@@ -9,12 +9,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/linktive/linktive/internal/backup"
+	"github.com/linktive/linktive/internal/clipper"
 	"github.com/linktive/linktive/internal/store"
 )
 
 type apiHandler struct {
-	store  store.Store
-	backup *backup.Manager
+	store   store.Store
+	backup  *backup.Manager
+	clipper *clipper.Manager
 }
 
 // RouterOption configures optional server dependencies for NewRouter.
@@ -24,6 +26,13 @@ type RouterOption func(*apiHandler)
 func WithBackupManager(m *backup.Manager) RouterOption {
 	return func(h *apiHandler) {
 		h.backup = m
+	}
+}
+
+// WithClipper wires the web clipper & archive manager into bookmark and admin routes.
+func WithClipper(m *clipper.Manager) RouterOption {
+	return func(h *apiHandler) {
+		h.clipper = m
 	}
 }
 
@@ -77,6 +86,9 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 				adm.Post("/backups/run", h.handleAdminRunBackup)
 				adm.Get("/backups/{filename}", h.handleAdminDownloadBackup)
 				adm.Delete("/backups/{filename}", h.handleAdminDeleteBackup)
+				adm.Get("/usage", h.handleAdminGetUsage)
+				adm.Patch("/archive-settings", h.handleAdminUpdateArchiveSettings)
+				adm.Post("/assets/cleanup", h.handleAdminCleanupOrphanAssets)
 			})
 
 			authed.Get("/api-keys", h.handleListAPIKeys)
@@ -91,6 +103,8 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 			authed.Post("/shared-collections/{colID}/bookmarks", h.handleCreateSharedCollectionBookmark)
 			authed.Patch("/shared-collections/{colID}/bookmarks/{bmID}", h.handleUpdateSharedCollectionBookmark)
 			authed.Delete("/shared-collections/{colID}/bookmarks/{bmID}", h.handleDeleteSharedCollectionBookmark)
+			authed.Get("/shared-collections/{colID}/bookmarks/{bmID}/archive", h.handleGetSharedCollectionBookmarkArchive)
+			authed.Get("/shared-collections/{colID}/bookmarks/{bmID}/assets/{filename}", h.handleServeSharedCollectionBookmarkAsset)
 
 			authed.Route("/workspaces/{wsID}", func(ws chi.Router) {
 				ws.Patch("/", h.handleUpdateWorkspace)
@@ -116,6 +130,14 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 				ws.Delete("/bookmarks/{bmID}", h.handleDeleteBookmark)
 				ws.Post("/bookmarks/{bmID}/check-link", h.handleCheckBookmarkLink)
 				ws.Post("/bookmarks/{bmID}/link-status", h.handleSetBookmarkLinkStatus)
+				ws.Get("/bookmarks/{bmID}/archive", h.handleGetBookmarkArchive)
+				ws.Post("/bookmarks/{bmID}/archive", h.handleArchiveBookmark)
+				ws.Delete("/bookmarks/{bmID}/archive", h.handleDeleteBookmarkArchive)
+				ws.Get("/bookmarks/{bmID}/assets/{filename}", h.handleServeBookmarkAsset)
+				ws.Get("/bookmarks/{bmID}/export/markdown", h.handleExportBookmarkMarkdown)
+
+				ws.Delete("/archives", h.handleClearWorkspaceArchives)
+				ws.Get("/usage", h.handleGetWorkspaceUsage)
 
 				ws.Post("/links/check", h.handleCheckWorkspaceLinks)
 				ws.Get("/links/duplicates", h.handleListDuplicateLinks)

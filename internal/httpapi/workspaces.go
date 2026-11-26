@@ -102,6 +102,9 @@ func (a *apiHandler) handleDeleteWorkspace(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
 		return
 	}
+	if a.clipper != nil {
+		a.clipper.DeleteWorkspaceAssets(wsID)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 

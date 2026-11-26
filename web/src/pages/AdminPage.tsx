@@ -16,8 +16,16 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { ConfirmModal } from '../components/ConfirmModal';
-import type { AutoBackupSettings, BackupFileInfo, User, UserInvite } from '../types/bookmark';
+import type {
+  AdminUsage,
+  ArchivePolicy,
+  AutoBackupSettings,
+  BackupFileInfo,
+  User,
+  UserInvite,
+} from '../types/bookmark';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatBytes } from '../utils/format';
 
 interface AdminPageProps {
   currentUser: User;
@@ -35,6 +43,14 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
     keep_count: 7,
   });
   const [backups, setBackups] = useState<BackupFileInfo[]>([]);
+  const [adminUsage, setAdminUsage] = useState<AdminUsage | null>(null);
+  const [archivePolicy, setArchivePolicy] = useState<ArchivePolicy>({
+    limit_enabled: true,
+    max_asset_mb: 10,
+    max_bookmark_mb: 30,
+  });
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [cleaningAssets, setCleaningAssets] = useState(false);
   const [runningBackup, setRunningBackup] = useState(false);
   const [deleteTargetBackup, setDeleteTargetBackup] = useState<BackupFileInfo | null>(null);
   const [deleteTargetUser, setDeleteTargetUser] = useState<User | null>(null);
@@ -48,13 +64,16 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       api.adminListUsers(),
       api.adminListInvites(),
       api.adminListBackups(),
+      api.adminGetUsage(),
     ])
-      .then(([cfg, usersRes, invitesRes, backupRes]) => {
+      .then(([cfg, usersRes, invitesRes, backupRes, usageRes]) => {
         setRegistrationEnabled(cfg.registration_enabled);
         setUsers(usersRes.items);
         setInvites(invitesRes.items);
         setBackupSettings(backupRes.settings);
         setBackups(backupRes.items);
+        setAdminUsage(usageRes);
+        setArchivePolicy(usageRes.archive_policy);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : '관리자 정보를 불러오지 못했습니다.');
@@ -163,10 +182,38 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
     }
   };
 
-  const formatBytes = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  const handleSaveArchivePolicy = async () => {
+    setError('');
+    setMessage('');
+    setSavingPolicy(true);
+    try {
+      const updated = await api.adminUpdateArchivePolicy(archivePolicy);
+      setArchivePolicy(updated);
+      setAdminUsage((prev) => (prev ? { ...prev, archive_policy: updated } : prev));
+      setMessage('아카이빙 용량 안전장치 설정을 저장했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '안전장치 설정 저장 실패');
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const handleCleanupOrphanAssets = async () => {
+    setError('');
+    setMessage('');
+    setCleaningAssets(true);
+    try {
+      const res = await api.adminCleanupOrphanAssets();
+      const refreshed = await api.adminGetUsage();
+      setAdminUsage(refreshed);
+      setMessage(
+        `고아 에셋 ${res.removed_files}개 파일(${formatBytes(res.freed_bytes)})을 정리했습니다.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '고아 에셋 정리 실패');
+    } finally {
+      setCleaningAssets(false);
+    }
   };
 
   return (
@@ -214,6 +261,131 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
           >
             {registrationEnabled ? '허용 중' : '비활성화됨'}
           </button>
+        </div>
+      </section>
+
+      {/* Server Usage & Archive Policy */}
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <HardDrive className="h-4 w-4 text-sky-600" />
+              <span>시스템 사용량 및 아카이빙 안전장치</span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500">
+              전체 DB·에셋·백업 디스크 사용량과 클리핑 이미지/북마크 용량 상한을 관리합니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={cleaningAssets}
+            onClick={() => void handleCleanupOrphanAssets()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>{cleaningAssets ? '정리 중...' : '고아 에셋 정리'}</span>
+          </button>
+        </div>
+
+        {adminUsage && (
+          <div className="grid gap-3 sm:grid-cols-4">
+            <div className="rounded-xl bg-slate-50 p-3.5">
+              <div className="text-[11px] text-slate-500">전체 데이터</div>
+              <div className="mt-1 text-lg font-bold text-slate-900">
+                {adminUsage.total_bookmarks.toLocaleString()} 북마크
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-400">
+                사용자 {adminUsage.total_users} · 소속 {adminUsage.total_workspaces} · 태그{' '}
+                {adminUsage.total_tags}
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3.5">
+              <div className="text-[11px] text-slate-500">SQLite DB</div>
+              <div className="mt-1 text-lg font-bold text-slate-900">
+                {formatBytes(adminUsage.db_size_bytes)}
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-400">
+                아카이빙 {adminUsage.total_archived.toLocaleString()}건 포함
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3.5">
+              <div className="text-[11px] text-slate-500">아카이빙 에셋 (/data/assets)</div>
+              <div className="mt-1 text-lg font-bold text-sky-700">
+                {formatBytes(adminUsage.assets_size_bytes)}
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-400">
+                {adminUsage.assets_file_count.toLocaleString()}개 파일
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3.5">
+              <div className="text-[11px] text-slate-500">백업 (/data/backups)</div>
+              <div className="mt-1 text-lg font-bold text-slate-900">
+                {formatBytes(adminUsage.backups_size_bytes)}
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-400">
+                {adminUsage.backups_file_count}개 파일
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="flex cursor-pointer items-center gap-2 font-semibold text-slate-800">
+              <input
+                type="checkbox"
+                checked={archivePolicy.limit_enabled}
+                onChange={(e) =>
+                  setArchivePolicy((prev) => ({ ...prev, limit_enabled: e.target.checked }))
+                }
+              />
+              <span>아카이빙 용량·파일 크기 안전장치 활성화 (기본: 10MB / 30MB)</span>
+            </label>
+            <button
+              type="button"
+              disabled={savingPolicy}
+              onClick={() => void handleSaveArchivePolicy()}
+              className="rounded-lg bg-sky-600 px-3.5 py-1.5 font-medium text-white hover:bg-sky-700 disabled:opacity-60"
+            >
+              {savingPolicy ? '저장 중...' : '안전장치 설정 저장'}
+            </button>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-slate-600">이미지 1개 최대 크기 (MB)</span>
+              <input
+                type="number"
+                min={1}
+                max={1024}
+                disabled={!archivePolicy.limit_enabled}
+                value={archivePolicy.max_asset_mb}
+                onChange={(e) =>
+                  setArchivePolicy((prev) => ({
+                    ...prev,
+                    max_asset_mb: Math.max(1, Number(e.target.value) || 1),
+                  }))
+                }
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:text-slate-400"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-slate-600">북마크 1건 총 에셋 제한 (MB)</span>
+              <input
+                type="number"
+                min={1}
+                max={4096}
+                disabled={!archivePolicy.limit_enabled}
+                value={archivePolicy.max_bookmark_mb}
+                onChange={(e) =>
+                  setArchivePolicy((prev) => ({
+                    ...prev,
+                    max_bookmark_mb: Math.max(1, Number(e.target.value) || 1),
+                  }))
+                }
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:text-slate-400"
+              />
+            </label>
+          </div>
         </div>
       </section>
 

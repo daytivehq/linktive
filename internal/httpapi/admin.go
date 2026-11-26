@@ -98,6 +98,9 @@ func (a *apiHandler) handleAdminDeleteUser(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to delete user")
 		return
 	}
+	if a.clipper != nil {
+		_, _, _ = a.clipper.CleanupOrphanAssets(r.Context())
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 

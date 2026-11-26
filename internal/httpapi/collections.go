@@ -379,5 +379,8 @@ func (a *apiHandler) handleDeleteSharedCollectionBookmark(w http.ResponseWriter,
 		writeError(w, http.StatusInternalServerError, "failed to delete bookmark")
 		return
 	}
+	if a.clipper != nil {
+		a.clipper.DeleteBookmarkAssets(access.WorkspaceID, bmID)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

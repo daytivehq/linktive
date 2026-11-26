@@ -1,10 +1,14 @@
 import type {
+  AdminUsage,
   APIKeyItem,
+  ArchivePolicy,
   AuthConfig,
   AutoBackupSettings,
   BackupFileInfo,
   Bookmark,
+  BookmarkArchive,
   BulkBookmarkAction,
+  ClipFormat,
   Collection,
   CollectionShare,
   DuplicateLinksResult,
@@ -22,6 +26,7 @@ import type {
   Workspace,
   WorkspaceMember,
   WorkspaceStats,
+  WorkspaceUsage,
 } from '../types/bookmark';
 
 export class ApiError extends Error {
@@ -244,6 +249,7 @@ export const api = {
       favorite?: boolean;
       tag?: string;
       link_status?: LinkStatus;
+      search_archive?: boolean;
       sort?: SortOrder;
       limit?: number;
       offset?: number;
@@ -256,6 +262,9 @@ export const api = {
     if (params.favorite) qs.set('favorite', 'true');
     if (params.tag) qs.set('tag', params.tag);
     if (params.link_status) qs.set('link_status', params.link_status);
+    if (params.search_archive !== undefined) {
+      qs.set('search_archive', params.search_archive ? 'true' : 'false');
+    }
     if (params.sort) qs.set('sort', params.sort);
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
@@ -276,6 +285,8 @@ export const api = {
       tags?: string[];
       is_favorite?: boolean;
       allow_duplicate?: boolean;
+      clip_now?: boolean;
+      clip_format?: ClipFormat;
     },
   ) =>
     request<Bookmark>(`/api/v1/workspaces/${wsID}/bookmarks`, {
@@ -409,6 +420,59 @@ export const api = {
   adminDeleteBackup: (filename: string) =>
     request<{ status: string }>(`/api/v1/admin/backups/${encodeURIComponent(filename)}`, {
       method: 'DELETE',
+    }),
+
+  getBookmarkArchive: (wsID: string, bmID: string) =>
+    request<BookmarkArchive>(`/api/v1/workspaces/${wsID}/bookmarks/${bmID}/archive`),
+
+  getSharedCollectionBookmarkArchive: (colID: string, bmID: string) =>
+    request<BookmarkArchive>(`/api/v1/shared-collections/${colID}/bookmarks/${bmID}/archive`),
+
+  archiveBookmark: (
+    wsID: string,
+    bmID: string,
+    payload?: {
+      html?: string;
+      mode?: ClipFormat;
+      merge?: boolean;
+      title?: string;
+      byline?: string;
+      site_name?: string;
+      source?: string;
+    },
+  ) =>
+    request<BookmarkArchive>(`/api/v1/workspaces/${wsID}/bookmarks/${bmID}/archive`, {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {}),
+    }),
+
+  deleteBookmarkArchive: (wsID: string, bmID: string) =>
+    request<{ status: string }>(`/api/v1/workspaces/${wsID}/bookmarks/${bmID}/archive`, {
+      method: 'DELETE',
+    }),
+
+  exportBookmarkMarkdownUrl: (wsID: string, bmID: string, bundle?: 'zip' | 'md') =>
+    `/api/v1/workspaces/${wsID}/bookmarks/${bmID}/export/markdown${bundle === 'md' ? '?bundle=md' : ''}`,
+
+  clearWorkspaceArchives: (wsID: string) =>
+    request<{ deleted: number }>(`/api/v1/workspaces/${wsID}/archives`, {
+      method: 'DELETE',
+    }),
+
+  getWorkspaceUsage: (wsID: string) =>
+    request<WorkspaceUsage>(`/api/v1/workspaces/${wsID}/usage`),
+
+  adminGetUsage: () => request<AdminUsage>('/api/v1/admin/usage'),
+
+  adminUpdateArchivePolicy: (payload: ArchivePolicy) =>
+    request<ArchivePolicy>('/api/v1/admin/archive-settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  adminCleanupOrphanAssets: () =>
+    request<{ removed_files: number; freed_bytes: number }>('/api/v1/admin/assets/cleanup', {
+      method: 'POST',
     }),
 
   setCollectionPublic: (wsID: string, colID: string, enabled: boolean) =>

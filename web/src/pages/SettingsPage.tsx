@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import {
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   Check,
   Copy,
   Database,
@@ -22,14 +23,19 @@ import { api } from '../api/client';
 import { ConfirmModal } from '../components/ConfirmModal';
 import type {
   APIKeyItem,
+  ArchiveShareScope,
   ClickAction,
+  ClipFormat,
+  ClipOnSaveMode,
   MemberRole,
   User,
   UserSettings,
   Workspace,
   WorkspaceMember,
+  WorkspaceUsage,
 } from '../types/bookmark';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatBytes } from '../utils/format';
 
 interface SettingsPageProps {
   user: User;
@@ -64,13 +70,26 @@ export function SettingsPage({
   onDataImported,
   onLogout,
 }: SettingsPageProps) {
-  const [tab, setTab] = useState<'general' | 'account' | 'workspaces' | 'transfer' | 'apikeys'>(
+  const [tab, setTab] = useState<'general' | 'usage' | 'account' | 'workspaces' | 'transfer' | 'apikeys'>(
     'general',
   );
   const [clickAction, setClickAction] = useState<ClickAction>(settings.click_action);
   const [includeSubcollections, setIncludeSubcollections] = useState<boolean>(
     settings.include_subcollections,
   );
+  const [clipOnSave, setClipOnSave] = useState<ClipOnSaveMode>(settings.clip_on_save);
+  const [clipFormat, setClipFormat] = useState<ClipFormat>(settings.clip_format);
+  const [searchArchiveContent, setSearchArchiveContent] = useState<boolean>(
+    settings.search_archive_content,
+  );
+  const [archiveShareScope, setArchiveShareScope] = useState<ArchiveShareScope>(
+    settings.archive_share_scope,
+  );
+
+  // Usage state
+  const [workspaceUsage, setWorkspaceUsage] = useState<WorkspaceUsage | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(false);
+  const [confirmClearArchives, setConfirmClearArchives] = useState(false);
 
   // Account & Security state
   const [profileName, setProfileName] = useState(user.name);
@@ -109,7 +128,18 @@ export function SettingsPage({
   useEffect(() => {
     setClickAction(settings.click_action);
     setIncludeSubcollections(settings.include_subcollections);
-  }, [settings.click_action, settings.include_subcollections]);
+    setClipOnSave(settings.clip_on_save);
+    setClipFormat(settings.clip_format);
+    setSearchArchiveContent(settings.search_archive_content);
+    setArchiveShareScope(settings.archive_share_scope);
+  }, [
+    settings.click_action,
+    settings.include_subcollections,
+    settings.clip_on_save,
+    settings.clip_format,
+    settings.search_archive_content,
+    settings.archive_share_scope,
+  ]);
 
   useEffect(() => {
     setMessage('');
@@ -132,6 +162,13 @@ export function SettingsPage({
         .listAPIKeys()
         .then((res) => setApiKeys(res.items))
         .catch(() => setApiKeys([]));
+    } else if (tab === 'usage') {
+      setLoadingUsage(true);
+      void api
+        .getWorkspaceUsage(activeWorkspace.id)
+        .then((res) => setWorkspaceUsage(res))
+        .catch(() => setWorkspaceUsage(null))
+        .finally(() => setLoadingUsage(false));
     }
   }, [tab, activeWorkspace.id]);
 
@@ -144,6 +181,10 @@ export function SettingsPage({
         ...settings,
         click_action: clickAction,
         include_subcollections: includeSubcollections,
+        clip_on_save: clipOnSave,
+        clip_format: clipFormat,
+        search_archive_content: searchArchiveContent,
+        archive_share_scope: archiveShareScope,
       });
       setMessage('설정이 저장되었습니다.');
     } catch (err) {
@@ -382,6 +423,16 @@ export function SettingsPage({
           </button>
           <button
             type="button"
+            onClick={() => setTab('usage')}
+            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
+              tab === 'usage' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
+            }`}
+          >
+            <BarChart3 className="h-4 w-4" />
+            <span>통계·사용량</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setTab('account')}
             className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
               tab === 'account' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
@@ -475,6 +526,148 @@ export function SettingsPage({
               </label>
             </div>
 
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-700">
+                웹 클리핑 · 아카이빙 방식
+              </label>
+              <div className="space-y-2 text-sm">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50">
+                  <input
+                    type="radio"
+                    name="clip_on_save"
+                    checked={clipOnSave === 'manual'}
+                    onChange={() => setClipOnSave('manual')}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="font-medium text-slate-800">수동으로만 클리핑 (권장 · 가볍게 사용)</div>
+                    <div className="text-xs text-slate-500">
+                      평소에는 가벼운 북마크만 저장하고, 필요한 페이지에만 세부정보 패널에서 본문 저장을 실행합니다.
+                    </div>
+                  </div>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50">
+                  <input
+                    type="radio"
+                    name="clip_on_save"
+                    checked={clipOnSave === 'auto'}
+                    onChange={() => setClipOnSave('auto')}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="font-medium text-slate-800">사이트 추가 시 자동 클리핑</div>
+                    <div className="text-xs text-slate-500">
+                      북마크를 저장할 때마다 백그라운드에서 읽기 전용 본문과 이미지를 자동으로 아카이빙합니다.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-700">
+                기본 클리핑 저장 형식
+              </label>
+              <div className="space-y-2 text-sm">
+                {(
+                  [
+                    [
+                      'readable',
+                      '리더 뷰 (본문·이미지 정리)',
+                      '불필요한 메뉴·광고·레이아웃을 제거하고 본문 글과 이미지만 깔끔하게 저장합니다.',
+                    ],
+                    [
+                      'html',
+                      '원본 HTML (사이트 레이아웃 유지)',
+                      '원본 웹페이지의 디자인·CSS 스타일·전체 구조를 안전하게 정제해 그대로 보존합니다.',
+                    ],
+                    [
+                      'both',
+                      '둘 다 저장 (리더 뷰 + 원본 HTML)',
+                      '상황에 따라 리더 뷰와 원본 레이아웃 화면을 전환해 볼 수 있습니다. (저장 용량은 소폭 늘어납니다)',
+                    ],
+                  ] as const
+                ).map(([value, titleText, descText]) => (
+                  <label
+                    key={value}
+                    className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50"
+                  >
+                    <input
+                      type="radio"
+                      name="clip_format"
+                      checked={clipFormat === value}
+                      onChange={() => setClipFormat(value)}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-800">{titleText}</div>
+                      <div className="text-xs text-slate-500">{descText}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-700">
+                아카이빙 본문 검색 · 열람 범위
+              </label>
+              <div className="space-y-2 text-sm">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-3 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={searchArchiveContent}
+                    onChange={(e) => setSearchArchiveContent(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="font-medium text-slate-800">통합 검색에 아카이빙 본문 포함</div>
+                    <div className="text-xs text-slate-500">
+                      끄면 제목·URL·설명·메모·태그만 검색하고, 켜면 저장된 본문 텍스트까지 함께 검색합니다.
+                    </div>
+                  </div>
+                </label>
+
+                <div className="rounded-lg border border-slate-200 p-3.5">
+                  <div className="mb-2 text-xs font-semibold text-slate-700">
+                    공유 소속·공유 컬렉션 내 아카이빙 본문 열람 허용
+                  </div>
+                  <div className="space-y-2">
+                    <label className="flex cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="archive_share_scope"
+                        checked={archiveShareScope === 'owner_only'}
+                        onChange={() => setArchiveShareScope('owner_only')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-800">본인만 열람 (기본값)</div>
+                        <div className="text-xs text-slate-500">
+                          내가 아카이빙한 본문은 공유 공간·공유 컬렉션 멤버에게도 노출되지 않습니다.
+                        </div>
+                      </div>
+                    </label>
+                    <label className="flex cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="archive_share_scope"
+                        checked={archiveShareScope === 'shared_members'}
+                        onChange={() => setArchiveShareScope('shared_members')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-800">공유 멤버에게도 본문 열람 허용</div>
+                        <div className="text-xs text-amber-700">
+                          주의: 외부 공개 링크(/share/...)에는 항상 비공개되며, 공유 멤버에게 아카이빙 본문을 공개할 때의 저작권 책임은 설정한 사용자 본인에게 있습니다.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-end">
               <button
                 type="submit"
@@ -484,6 +677,67 @@ export function SettingsPage({
               </button>
             </div>
           </form>
+        )}
+
+        {tab === 'usage' && (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  "{activeWorkspace.name}" 통계 및 저장 공간 사용량
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  현재 선택된 소속의 북마크, 태그, 아카이빙 본문과 로컬 이미지 용량을 확인합니다.
+                </p>
+              </div>
+              {workspaceUsage && workspaceUsage.archived_count > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearArchives(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>아카이빙 데이터 모두 비우기</span>
+                </button>
+              )}
+            </div>
+
+            {loadingUsage ? (
+              <p className="py-8 text-center text-xs text-slate-400">사용량을 집계하는 중...</p>
+            ) : workspaceUsage ? (
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="text-xs text-slate-500">북마크</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900">
+                    {workspaceUsage.bookmark_count.toLocaleString()}
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    컬렉션 {workspaceUsage.collection_count}개 · 태그 {workspaceUsage.tag_count}개
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="text-xs text-slate-500">아카이빙 본문</div>
+                  <div className="mt-1 text-2xl font-bold text-sky-700">
+                    {workspaceUsage.archived_count.toLocaleString()}
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    로컬 이미지 {workspaceUsage.archive_asset_count.toLocaleString()}개 저장됨
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="text-xs text-slate-500">아카이빙 사용 용량</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900">
+                    {formatBytes(workspaceUsage.archive_bytes)}
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    본문 텍스트 + 로컬 이미지 합계
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">사용량 정보를 불러오지 못했습니다.</p>
+            )}
+          </div>
         )}
 
         {tab === 'account' && (
@@ -1057,6 +1311,22 @@ export function SettingsPage({
             await api.deleteWorkspace(deleteTargetWs.id);
             onWorkspaceDeleted(deleteTargetWs.id);
             setMessage(`"${deleteTargetWs.name}" 소속을 삭제했습니다.`);
+          }}
+        />
+      )}
+
+      {confirmClearArchives && (
+        <ConfirmModal
+          title="아카이빙 데이터 모두 비우기"
+          message={`"${activeWorkspace.name}" 소속의 모든 아카이빙 본문과 로컬 이미지를 삭제할까요? 북마크 목록과 URL은 그대로 유지됩니다.`}
+          confirmLabel="비우기"
+          onClose={() => setConfirmClearArchives(false)}
+          onConfirm={async () => {
+            const res = await api.clearWorkspaceArchives(activeWorkspace.id);
+            const refreshed = await api.getWorkspaceUsage(activeWorkspace.id);
+            setWorkspaceUsage(refreshed);
+            await onDataImported();
+            setMessage(`아카이빙 데이터 ${res.deleted}건을 삭제했습니다.`);
           }}
         />
       )}

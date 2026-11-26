@@ -185,6 +185,8 @@ type Bookmark struct {
 	IsFavorite    bool       `json:"is_favorite"`
 	LinkStatus    LinkStatus `json:"link_status"`
 	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
+	ArchiveStatus string     `json:"archive_status,omitempty"`
+	ArchiveBytes  int64      `json:"archive_bytes,omitempty"`
 	Tags          []string   `json:"tags"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
@@ -254,4 +256,58 @@ type LinkCheckSummary struct {
 	BrokenCount  int        `json:"broken_count"`
 	BlockedCount int        `json:"blocked_count"`
 	Items        []Bookmark `json:"items"`
+}
+
+// BookmarkArchive stores a locally archived copy (readable view and/or original HTML layout) of a bookmarked web page.
+type BookmarkArchive struct {
+	BookmarkID   string    `json:"bookmark_id"`
+	WorkspaceID  string    `json:"workspace_id"`
+	CreatedBy    string    `json:"created_by"`
+	Source       string    `json:"source"`
+	ArchiveMode  string    `json:"archive_mode"` // readable, html, both
+	Status       string    `json:"status"`       // pending, ready, failed
+	ErrorMessage string    `json:"error_message,omitempty"`
+	Title        string    `json:"title"`
+	Byline       string    `json:"byline,omitempty"`
+	SiteName     string    `json:"site_name,omitempty"`
+	ContentHTML  string    `json:"content_html"`
+	SnapshotHTML string    `json:"snapshot_html"`
+	ContentText  string    `json:"content_text"`
+	AssetCount   int       `json:"asset_count"`
+	TotalBytes   int64     `json:"total_bytes"`
+	ArchivedAt   time.Time `json:"archived_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// ArchivePolicy defines server-wide safety limits for archived pages and image assets.
+type ArchivePolicy struct {
+	LimitEnabled  bool `json:"limit_enabled"`
+	MaxAssetMB    int  `json:"max_asset_mb"`
+	MaxBookmarkMB int  `json:"max_bookmark_mb"`
+}
+
+// WorkspaceUsage summarizes counts and storage usage inside a workspace.
+type WorkspaceUsage struct {
+	WorkspaceID      string `json:"workspace_id"`
+	BookmarkCount    int    `json:"bookmark_count"`
+	TagCount         int    `json:"tag_count"`
+	CollectionCount  int    `json:"collection_count"`
+	ArchivedCount    int    `json:"archived_count"`
+	ArchiveAssetCount int   `json:"archive_asset_count"`
+	ArchiveBytes     int64  `json:"archive_bytes"`
+}
+
+// AdminUsage summarizes server-wide counts and storage usage for administrators.
+type AdminUsage struct {
+	TotalUsers        int           `json:"total_users"`
+	TotalWorkspaces   int           `json:"total_workspaces"`
+	TotalBookmarks    int           `json:"total_bookmarks"`
+	TotalTags         int           `json:"total_tags"`
+	TotalArchived     int           `json:"total_archived"`
+	DBSizeBytes       int64         `json:"db_size_bytes"`
+	AssetsSizeBytes   int64         `json:"assets_size_bytes"`
+	AssetsFileCount   int           `json:"assets_file_count"`
+	BackupsSizeBytes  int64         `json:"backups_size_bytes"`
+	BackupsFileCount  int           `json:"backups_file_count"`
+	ArchivePolicy     ArchivePolicy `json:"archive_policy"`
 }

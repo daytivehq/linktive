@@ -118,6 +118,12 @@ func (s *Store) GetBookmark(ctx context.Context, workspaceID, bookmarkID string)
 	if bm.Tags == nil {
 		bm.Tags = []string{}
 	}
+	if archiveMap, aErr := s.loadArchiveMetaForBookmarks(ctx, []string{bm.ID}); aErr == nil {
+		if meta, ok := archiveMap[bm.ID]; ok {
+			bm.ArchiveStatus = meta.status
+			bm.ArchiveBytes = meta.bytes
+		}
+	}
 	return bm, nil
 }
 
@@ -235,6 +241,9 @@ func (s *Store) DeleteBookmark(ctx context.Context, workspaceID, bookmarkID stri
 	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE bookmark_id = ?`, bookmarkID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE bookmark_id = ?`, bookmarkID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -287,6 +296,9 @@ func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput
 				return 0, err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE bookmark_id = ?`, bmID); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE bookmark_id = ?`, bmID); err != nil {
 				return 0, err
 			}
 		case "tags_set", "tags_add", "tags_remove":
@@ -770,14 +782,31 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 			where = append(where, "(INSTR(b.chosung_text, ?) > 0 OR INSTR(b.compact_text, ?) > 0)")
 			args = append(args, compact, compact)
 		} else if runes >= 3 {
-			where = append(where, `b.id IN (
-				SELECT bookmark_id FROM bookmarks_fts WHERE workspace_id = ? AND bookmarks_fts MATCH ?
-			)`)
-			args = append(args, query.WorkspaceID, search.QuoteFTS5Literal(compact))
+			if query.IncludeArchiveContent {
+				where = append(where, `(
+					b.id IN (SELECT bookmark_id FROM bookmarks_fts WHERE workspace_id = ? AND bookmarks_fts MATCH ?)
+					OR b.id IN (SELECT bookmark_id FROM bookmark_archives_fts WHERE workspace_id = ? AND bookmark_archives_fts MATCH ?)
+				)`)
+				lit := search.QuoteFTS5Literal(compact)
+				args = append(args, query.WorkspaceID, lit, query.WorkspaceID, lit)
+			} else {
+				where = append(where, `b.id IN (
+					SELECT bookmark_id FROM bookmarks_fts WHERE workspace_id = ? AND bookmarks_fts MATCH ?
+				)`)
+				args = append(args, query.WorkspaceID, search.QuoteFTS5Literal(compact))
+			}
 		} else {
 			// 1-2 character Korean/ASCII queries bypass trigram and match normalized compact text directly.
-			where = append(where, "INSTR(b.compact_text, ?) > 0")
-			args = append(args, compact)
+			if query.IncludeArchiveContent {
+				where = append(where, `(
+					INSTR(b.compact_text, ?) > 0
+					OR EXISTS (SELECT 1 FROM bookmark_archives_fts af WHERE af.bookmark_id = b.id AND INSTR(af.compact_text, ?) > 0)
+				)`)
+				args = append(args, compact, compact)
+			} else {
+				where = append(where, "INSTR(b.compact_text, ?) > 0")
+				args = append(args, compact)
+			}
 		}
 
 		relevanceParts = append(relevanceParts, "CASE WHEN INSTR(LOWER(b.title), ?) > 0 THEN 4 ELSE 0 END")
@@ -854,12 +883,20 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 	if err != nil {
 		return store.SearchResult{}, err
 	}
+	archiveMap, err := s.loadArchiveMetaForBookmarks(ctx, ids)
+	if err != nil {
+		return store.SearchResult{}, err
+	}
 	for i := range items {
 		tags := tagMap[items[i].ID]
 		if tags == nil {
 			tags = []string{}
 		}
 		items[i].Tags = tags
+		if meta, ok := archiveMap[items[i].ID]; ok {
+			items[i].ArchiveStatus = meta.status
+			items[i].ArchiveBytes = meta.bytes
+		}
 	}
 
 	return store.SearchResult{Items: items, Total: total}, nil

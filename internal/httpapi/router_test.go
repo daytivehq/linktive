@@ -14,6 +14,7 @@ import (
 
 	"github.com/linktive/linktive/internal/authutil"
 	"github.com/linktive/linktive/internal/backup"
+	"github.com/linktive/linktive/internal/clipper"
 	"github.com/linktive/linktive/internal/store/sqlite"
 )
 
@@ -571,6 +572,168 @@ func TestSavedFiltersLinkCheckAndAdminBackups(t *testing.T) {
 	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+wsID+"/filters/"+createdFilter.ID, nil, cookies)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete saved filter failed: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBookmarkArchiveSearchPolicyUsageAndCleanup(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) failed: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	tmpRoot := t.TempDir()
+	assetsDir := tmpRoot + "/assets"
+	backupsDir := tmpRoot + "/backups"
+	clipMgr := clipper.NewManager(st, assetsDir, "", backupsDir)
+	handler := NewRouter(
+		st,
+		fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}},
+		WithClipper(clipMgr),
+	)
+
+	// Serve a mock article and an image asset.
+	pngBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cover.png" {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngBytes)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><head><title>아카이브 원문 제목</title></head><body><article><h1>아카이브 원문 제목</h1><p>본문에서만 검색되는 고유키워드알파 테스트 문장입니다.</p><img src="/cover.png" alt="cover" /></article></body></html>`))
+	}))
+	defer srv.Close()
+
+	// 1. Register admin user + create bookmark.
+	reg := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "owner@linktive.local", "name": "소유자", "password": "password123",
+	}, nil)
+	if reg.Code != http.StatusCreated {
+		t.Fatalf("register owner failed: %d %s", reg.Code, reg.Body.String())
+	}
+	ownerCookies := reg.Result().Cookies()
+	var ownerReg struct {
+		Workspaces []struct {
+			ID string `json:"id"`
+		} `json:"workspaces"`
+	}
+	_ = json.Unmarshal(reg.Body.Bytes(), &ownerReg)
+	wsID := ownerReg.Workspaces[0].ID
+
+	rec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/bookmarks", map[string]any{
+		"url":   srv.URL + "/article",
+		"title": "외부 제목만 있음",
+	}, ownerCookies)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create bookmark failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var bm struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &bm)
+
+	// 2. Clip bookmark in 'both' mode & inspect archive (readable + snapshot HTML).
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", map[string]any{
+		"mode": "both",
+	}, ownerCookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST archive failed: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"ready"`) || !strings.Contains(rec.Body.String(), `"archive_mode":"both"`) || !strings.Contains(rec.Body.String(), `"snapshot_html"`) || !strings.Contains(rec.Body.String(), "/assets/") {
+		t.Fatalf("unexpected archive response: %s", rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", nil, ownerCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "고유키워드알파") {
+		t.Fatalf("GET archive failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Search toggle: search_archive=true finds body text, search_archive=false excludes it.
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks?q="+url.QueryEscape("고유키워드알파")+"&search_archive=true", nil, ownerCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), bm.ID) {
+		t.Fatalf("search with search_archive=true should find bookmark: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks?q="+url.QueryEscape("고유키워드알파")+"&search_archive=false", nil, ownerCookies)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), bm.ID) {
+		t.Fatalf("search with search_archive=false should not match body text: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Markdown export (returns ZIP with images by default, plain MD with ?bundle=md).
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/export/markdown", nil, ownerCookies)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/zip" {
+		t.Fatalf("markdown zip bundle export failed: %d ct=%s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/export/markdown?bundle=md", nil, ownerCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "고유키워드알파") {
+		t.Fatalf("plain markdown export failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. Usage & admin archive policy.
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/usage", nil, ownerCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"archived_count":1`) {
+		t.Fatalf("workspace usage failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/admin/usage", nil, ownerCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"total_archived":1`) {
+		t.Fatalf("admin usage failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/admin/archive-settings", map[string]any{
+		"limit_enabled":   false,
+		"max_asset_mb":    25,
+		"max_bookmark_mb": 100,
+	}, ownerCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"max_asset_mb":25`) {
+		t.Fatalf("update archive settings failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/admin/assets/cleanup", nil, ownerCookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin orphan asset cleanup failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 6. Archive privacy scope in shared workspace: owner_only -> 403 for member, shared_members -> 200.
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email": "member@linktive.local", "name": "멤버", "password": "password123",
+	}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register member failed: %d %s", rec.Code, rec.Body.String())
+	}
+	memberCookies := rec.Result().Cookies()
+
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/members", map[string]string{
+		"email": "member@linktive.local",
+		"role":  "viewer",
+	}, ownerCookies)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add workspace member failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", nil, memberCookies)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for member when owner archive_share_scope is owner_only, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/auth/settings", map[string]any{
+		"archive_share_scope": "shared_members",
+	}, ownerCookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update owner settings failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", nil, memberCookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "고유키워드알파") {
+		t.Fatalf("expected 200 for member after owner enabled shared_members, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 7. Delete archive.
+	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", nil, ownerCookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE archive failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", nil, ownerCookies)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after DELETE archive, got %d %s", rec.Code, rec.Body.String())
 	}
 }
 

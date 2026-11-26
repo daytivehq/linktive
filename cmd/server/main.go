@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/linktive/linktive/internal/backup"
+	"github.com/linktive/linktive/internal/clipper"
 	"github.com/linktive/linktive/internal/config"
 	"github.com/linktive/linktive/internal/httpapi"
 	"github.com/linktive/linktive/internal/store/sqlite"
@@ -33,8 +34,12 @@ func main() {
 		}
 	}()
 
-	backupMgr := backup.NewManager(st, filepath.Join(cfg.DataDir, "backups"))
+	backupsDir := filepath.Join(cfg.DataDir, "backups")
+	backupMgr := backup.NewManager(st, backupsDir)
 	go backupMgr.StartScheduler(ctx)
+
+	clipMgr := clipper.NewManager(st, filepath.Join(cfg.DataDir, "assets"), cfg.DBPath, backupsDir)
+	clipMgr.Start(ctx)
 
 	staticFS, err := webembed.DistFS()
 	if err != nil {
@@ -42,8 +47,13 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           httpapi.NewRouter(st, staticFS, httpapi.WithBackupManager(backupMgr)),
+		Addr: cfg.Addr,
+		Handler: httpapi.NewRouter(
+			st,
+			staticFS,
+			httpapi.WithBackupManager(backupMgr),
+			httpapi.WithClipper(clipMgr),
+		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

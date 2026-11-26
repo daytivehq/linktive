@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Bookmark as BookmarkIcon,
   BookmarkPlus,
+  BookOpen,
   Check,
   CheckCircle2,
   CheckSquare,
@@ -231,6 +232,8 @@ function AuthenticatedShell({
   const [detailDrawer, setDetailDrawer] = useState<{
     bookmark: Bookmark;
     editing: boolean;
+    initialTab?: 'info' | 'archive';
+    initialExpanded?: boolean;
   } | null>(null);
   const [collectionModal, setCollectionModal] = useState<{
     open: boolean;
@@ -515,6 +518,7 @@ function AuthenticatedShell({
         tag: routeScope.kind === 'tag' ? routeScope.tagName : undefined,
         link_status:
           routeScope.kind === 'broken-links' ? (brokenStatusTab as LinkStatus) : undefined,
+        search_archive: settings.search_archive_content,
         sort: sortOrder,
         limit: 100,
       });
@@ -530,6 +534,7 @@ function AuthenticatedShell({
     brokenStatusTab,
     sortOrder,
     settings.include_subcollections,
+    settings.search_archive_content,
   ]);
 
   useEffect(() => {
@@ -539,6 +544,26 @@ function AuthenticatedShell({
   useEffect(() => {
     void refreshBookmarks();
   }, [refreshBookmarks]);
+
+  useEffect(() => {
+    if (!bookmarks.some((b) => b.archive_status === 'pending')) return;
+    const timer = window.setTimeout(() => {
+      void refreshBookmarks();
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [bookmarks, refreshBookmarks]);
+
+  useEffect(() => {
+    if (!detailDrawer) return;
+    const latest = bookmarks.find((b) => b.id === detailDrawer.bookmark.id);
+    if (
+      latest &&
+      (latest.archive_status !== detailDrawer.bookmark.archive_status ||
+        latest.archive_bytes !== detailDrawer.bookmark.archive_bytes)
+    ) {
+      setDetailDrawer((prev) => (prev ? { ...prev, bookmark: latest } : null));
+    }
+  }, [bookmarks, detailDrawer]);
 
   const updateSettings = async (next: UserSettings) => {
     const res = await api.updateSettings(next);
@@ -1427,6 +1452,30 @@ function AuthenticatedShell({
                             <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
                               <ShieldAlert className="h-2.5 w-2.5" />
                               접근제한
+                            </span>
+                          )}
+                          {bm.archive_status === 'ready' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDetailDrawer({
+                                  bookmark: bm,
+                                  editing: false,
+                                  initialTab: 'archive',
+                                  initialExpanded: true,
+                                });
+                              }}
+                              title="큰 화면으로 아카이빙 본문 보기"
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
+                            >
+                              <BookOpen className="h-2.5 w-2.5" />
+                              아카이빙됨
+                            </button>
+                          )}
+                          {bm.archive_status === 'pending' && (
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                              클리핑 중
                             </span>
                           )}
                         </div>
@@ -2456,12 +2505,20 @@ function AuthenticatedShell({
           activeWorkspaceId={activeWorkspace.id}
           canEdit={canEditCurrentView}
           initialEditing={detailDrawer.editing}
+          initialTab={detailDrawer.initialTab}
+          initialExpanded={detailDrawer.initialExpanded}
+          defaultClipFormat={settings.clip_format}
+          isSharedCollectionView={isSharedCollectionView}
+          sharedCollectionId={activeSharedCollection?.id}
           onClose={() => setDetailDrawer(null)}
           onUpdate={handleUpdateBookmark}
           onDelete={(bm) => handleDeleteBookmark(bm)}
           onToggleFavorite={(bm) => void handleToggleFavorite(bm)}
           onCheckLink={handleCheckBookmarkLink}
           onMarkLinkOk={handleMarkBookmarkLinkOk}
+          onArchiveUpdated={async () => {
+            await refreshBookmarks();
+          }}
         />
       )}
 

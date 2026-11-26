@@ -17,3 +17,140 @@ html.scroll-locked [data-lock-on-modal] {
 [data-scroll-pane].is-scrolling {
   scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
 }
+
+.clipper-article {
+  color: #1e293b;
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.clipper-article h1,
+.clipper-article h2,
+.clipper-article h3,
+.clipper-article h4 {
+  color: #0f172a;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-top: 1.5em;
+  margin-bottom: 0.6em;
+}
+
+.clipper-article h1 { font-size: 1.45em; }
+.clipper-article h2 { font-size: 1.25em; }
+.clipper-article h3 { font-size: 1.1em; }
+
+.clipper-article p,
+.clipper-article ul,
+.clipper-article ol,
+.clipper-article blockquote,
+.clipper-article pre {
+  margin-bottom: 1em;
+}
+
+.clipper-article ul,
+.clipper-article ol {
+  padding-left: 1.4em;
+}
+
+.clipper-article ul { list-style-type: disc; }
+.clipper-article ol { list-style-type: decimal; }
+
+.clipper-article a {
+  color: #0284c7;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clipper-article img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.75rem;
+  margin: 1rem 0;
+  border: 1px solid #e2e8f0;
+}
+
+.clipper-article blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding: 0.25rem 0 0.25rem 1rem;
+  color: #475569;
+  background: #f8fafc;
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.clipper-article pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.9rem 1rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+
+.clipper-article code {
+  background: #f1f5f9;
+  color: #0f172a;
+  padding: 0.1em 0.35em;
+  border-radius: 0.3rem;
+  font-size: 0.88em;
+}
+
+.clipper-article pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.clipper-article table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9em;
+}
+
+.clipper-article th,
+.clipper-article td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.clipper-article th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+.clipper-print-portal {
+  display: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  #root {
+    display: none !important;
+  }
+  .clipper-print-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    padding: 12mm !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+  .clipper-article img,
+  .clipper-article pre,
+  .clipper-article blockquote {
+    break-inside: avoid;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
