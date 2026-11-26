@@ -371,7 +371,7 @@ func (m *Manager) saveHTML(
 		return domain.BookmarkArchive{}, err
 	}
 	defer os.RemoveAll(stage)
-	rewrites, notice, err := m.downloadAssets(ctx, workspaceID, bookmarkID, pageURL, stage, imageURLs, snap.StylesheetURLs, policy)
+	rewrites, notice, incomplete, err := m.downloadAssets(ctx, workspaceID, bookmarkID, pageURL, stage, imageURLs, snap.StylesheetURLs, policy)
 	if err != nil {
 		return domain.BookmarkArchive{}, err
 	}
@@ -387,12 +387,12 @@ func (m *Manager) saveHTML(
 	}
 	var existing domain.BookmarkArchive
 	hasExisting := false
-	if opts.Merge && current != "" {
+	if (opts.Merge || incomplete) && current != "" {
 		existing, err = m.store.GetBookmarkArchive(ctx, workspaceID, bookmarkID)
 		if err != nil {
 			return domain.BookmarkArchive{}, err
 		}
-		hasExisting = existing.Status == "ready"
+		hasExisting = opts.Merge && existing.Status == "ready"
 	}
 	assetDir := filepath.Join(m.assetsDir, workspaceID, bookmarkID)
 	files, err := os.ReadDir(stage)
@@ -502,7 +502,11 @@ func (m *Manager) saveHTML(
 			continue
 		}
 		name := entry.Name()
-		if !strings.Contains(finalContentHTML, "/assets/"+name) && !strings.Contains(finalSnapshotHTML, "/assets/"+name) {
+		assetPath := "/assets/" + name
+		if !strings.Contains(finalContentHTML, assetPath) && !strings.Contains(finalSnapshotHTML, assetPath) {
+			if incomplete && existing.Status == "ready" && (strings.Contains(existing.ContentHTML, assetPath) || strings.Contains(existing.SnapshotHTML, assetPath)) {
+				return domain.BookmarkArchive{}, errors.New("could not refresh archived resources; previous archive retained")
+			}
 			obsolete = append(obsolete, filepath.Join(assetDir, name))
 			continue
 		}
@@ -584,7 +588,7 @@ func (m *Manager) downloadAssets(
 	workspaceID, bookmarkID, refererURL, assetDir string,
 	imageURLs, cssURLs []string,
 	policy domain.ArchivePolicy,
-) (rewrites map[string]string, notice string, err error) {
+) (rewrites map[string]string, notice string, incomplete bool, err error) {
 	rewrites = make(map[string]string)
 	var totalBytes int64
 	var maxAssetBytes int64
@@ -636,11 +640,10 @@ func (m *Manager) downloadAssets(
 					continue
 				}
 				data, ext, over, err := m.fetchAsset(ctx, job, refererURL, maxAssetBytes)
-				if err != nil {
-					continue
-				}
 				mu.Lock()
-				if over {
+				if err != nil {
+					incomplete = true
+				} else if over {
 					skippedForLimit++
 				} else {
 					sum := sha256.Sum256(data)
@@ -665,10 +668,10 @@ func (m *Manager) downloadAssets(
 	}
 	wg.Wait()
 	if stageErr != nil {
-		return nil, "", stageErr
+		return nil, "", false, stageErr
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
 
 	if skippedForLimit > 0 {

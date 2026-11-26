@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,6 +94,7 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 	bigPNG := append([]byte{0x89, 'P', 'N', 'G'}, make([]byte, 2*1024*1024)...)
 	smallPNG := []byte{0x89, 'P', 'N', 'G', 1, 2, 3, 4}
 
+	var imageUnavailable atomic.Bool
 	var srvURL string
 	t.Setenv("LINKTIVE_ALLOW_PRIVATE_NETWORKS", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +103,10 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = w.Write([]byte(`<html><body><article><p>본문 내용입니다. 충분한 길이의 한국어 텍스트를 제공합니다. 아카이빙 테스트 문장입니다.</p><img src="/small.png"/><img src="/big.png"/></article></body></html>`))
 		case "/small.png":
+			if imageUnavailable.Load() {
+				http.NotFound(w, r)
+				return
+			}
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(smallPNG)
 		case "/big.png":
@@ -149,6 +155,10 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 
 	if _, err := mgr.ClipURL(ctx, ws.ID, bm.ID, user.ID, srvURL+"/missing"); err == nil {
 		t.Fatal("expected fetch failure")
+	}
+	imageUnavailable.Store(true)
+	if _, err := mgr.ClipURL(ctx, ws.ID, bm.ID, user.ID, bm.URL); err == nil {
+		t.Fatal("partial reclip discarded a cached image")
 	}
 	preserved, err := st.GetBookmarkArchive(ctx, ws.ID, bm.ID)
 	if err != nil || preserved.ContentHTML != ar.ContentHTML || preserved.Status != "ready" {
