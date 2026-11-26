@@ -966,7 +966,7 @@ export function SettingsPage({
                     <p className="mt-0.5 text-xs text-slate-500">{t('settings.usageDesc')}</p>
                   </div>
                 </div>
-                {workspaceUsage && workspaceUsage.archived_count > 0 && (
+                {activeWorkspace.role !== 'viewer' && workspaceUsage && workspaceUsage.archived_count > 0 && (
                   <button
                     type="button"
                     onClick={() => setConfirmClearArchives(true)}

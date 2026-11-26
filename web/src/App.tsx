@@ -481,7 +481,12 @@ function AuthenticatedShell({
     setSavedFilters(filterRes.items);
   }, []);
 
-  const refreshBookmarks = useCallback(async () => {
+  const requestVersion = useRef(0);
+  const loadedCount = useRef(0);
+  const [listError, setListError] = useState('');
+  const refreshBookmarks = useCallback(async (append = false) => {
+    const version = ++requestVersion.current;
+    setListError('');
     if (
       routeScope.kind === 'settings' ||
       routeScope.kind === 'admin' ||
@@ -498,26 +503,16 @@ function AuthenticatedShell({
     }
     setLoadingBookmarks(true);
     try {
-      if (routeScope.kind === 'shared-collection') {
-        const res = await api.listSharedCollectionBookmarks(routeScope.collectionId, {
-          sort: sortOrder,
-        });
-        setActiveSharedCollection(res.collection);
-        setBookmarks(res.items);
-        setTotalBookmarks(res.total);
-        return;
-      }
-
-      setActiveSharedCollection(null);
       if (routeScope.kind === 'broken-links' && brokenStatusTab === 'duplicates') {
         const dupRes = await api.listDuplicateLinks(activeWorkspace.id);
+        if (version !== requestVersion.current) return;
         setDuplicateResult(dupRes);
         setBookmarks([]);
         setTotalBookmarks(dupRes.total_excess);
         return;
       }
 
-      const res = await api.listBookmarks(activeWorkspace.id, {
+      const query = {
         q:
           routeScope.kind === 'search'
             ? routeScope.q
@@ -538,12 +533,36 @@ function AuthenticatedShell({
           routeScope.kind === 'broken-links' ? (brokenStatusTab as LinkStatus) : undefined,
         search_archive: settings.search_archive_content,
         sort: sortOrder,
-        limit: 100,
+      };
+      const pageSize = routeScope.kind === 'shared-collection' ? 50 : 100;
+      let offset = append ? loadedCount.current : 0;
+      const end = append ? offset + pageSize : Math.max(loadedCount.current, pageSize);
+      const items: Bookmark[] = [];
+      let total = 0;
+      do {
+        const params = { ...query, offset, limit: pageSize };
+        const page = routeScope.kind === 'shared-collection'
+          ? await api.listSharedCollectionBookmarks(routeScope.collectionId, params)
+          : await api.listBookmarks(activeWorkspace.id, params);
+        if (version !== requestVersion.current) return;
+        if ('collection' in page) setActiveSharedCollection(page.collection as SharedCollectionView);
+        else setActiveSharedCollection(null);
+        items.push(...page.items);
+        offset += page.items.length;
+        total = page.total;
+        if (page.items.length < pageSize) break;
+      } while (offset < end && offset < total);
+      loadedCount.current = offset;
+      setBookmarks(previous => {
+        if (!append) return items;
+        const seen = new Set(previous.map(item => item.id));
+        return [...previous, ...items.filter(item => !seen.has(item.id))];
       });
-      setBookmarks(res.items);
-      setTotalBookmarks(res.total);
+      setTotalBookmarks(total);
+    } catch (err) {
+      if (version === requestVersion.current) setListError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoadingBookmarks(false);
+      if (version === requestVersion.current) setLoadingBookmarks(false);
     }
   }, [
     activeWorkspace.id,
@@ -560,16 +579,21 @@ function AuthenticatedShell({
   }, [activeWorkspace.id, refreshSidebar]);
 
   useEffect(() => {
+    loadedCount.current = 0;
+    setBookmarks([]);
+    setTotalBookmarks(0);
+    setActiveSharedCollection(null);
     void refreshBookmarks();
+    return () => { requestVersion.current++; };
   }, [refreshBookmarks]);
 
   useEffect(() => {
-    if (!bookmarks.some((b) => b.archive_status === 'pending')) return;
+    if (loadingBookmarks || !bookmarks.some((b) => b.archive_status === 'pending')) return;
     const timer = window.setTimeout(() => {
       void refreshBookmarks();
     }, 2500);
     return () => window.clearTimeout(timer);
-  }, [bookmarks, refreshBookmarks]);
+  }, [bookmarks, loadingBookmarks, refreshBookmarks]);
 
   useEffect(() => {
     if (!detailDrawer) return;
@@ -1586,6 +1610,13 @@ function AuthenticatedShell({
             );
           })}
         </div>
+      )}
+      {listError && <p role="alert" className="mt-2 text-sm text-rose-700">{listError}</p>}
+      {bookmarks.length > 0 && loadedCount.current < totalBookmarks && (
+        <button type="button" disabled={loadingBookmarks} onClick={() => void refreshBookmarks(true)}
+          className="mx-auto my-4 block rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+          {t('feed.loadMore')}
+        </button>
       )}
     </>
   );

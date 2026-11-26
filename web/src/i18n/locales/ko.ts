@@ -110,6 +110,7 @@ export const ko: Messages = {
   'feed.sharedBy': '{owner} 님 공유 · {role}',
   'feed.searchResultCount': '"{query}" 검색 결과 {count}개',
   'feed.saveAsFilter': '필터로 저장',
+  'feed.loadMore': '더 보기',
   'feed.totalBookmarks': '북마크 {count}개',
   'feed.sortRelevance': '관련도/최신순',
   'feed.sortNewest': '최신순',

@@ -41,14 +41,9 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  });
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const res = await fetch(path, { credentials: 'include', ...init, headers });
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -511,10 +506,12 @@ export const api = {
   listSharedCollections: () =>
     request<{ items: SharedCollectionView[] }>('/api/v1/shared-collections'),
 
-  listSharedCollectionBookmarks: (colID: string, params?: { q?: string; sort?: SortOrder }) => {
+  listSharedCollectionBookmarks: (colID: string, params?: { q?: string; sort?: SortOrder; offset?: number; limit?: number }) => {
     const qs = new URLSearchParams();
     if (params?.q) qs.set('q', params.q);
     if (params?.sort) qs.set('sort', params.sort);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
     const query = qs.toString();
     return request<{ collection: SharedCollectionView; items: Bookmark[]; total: number }>(
       `/api/v1/shared-collections/${colID}/bookmarks${query ? `?${query}` : ''}`,

@@ -9,10 +9,10 @@ export function FaviconBadge({
   domain: string;
   size?: 'sm' | 'md';
 }) {
-  const [failed, setFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string>();
   const boxClass = size === 'sm' ? 'h-5 w-5 rounded' : 'h-9 w-9 rounded-lg';
 
-  if (faviconUrl && !failed) {
+  if (faviconUrl && faviconUrl !== failedUrl) {
     return (
       <div
         className={`flex shrink-0 items-center justify-center overflow-hidden bg-slate-100 ${boxClass}`}
@@ -21,7 +21,7 @@ export function FaviconBadge({
           src={faviconUrl}
           alt=""
           loading="lazy"
-          onError={() => setFailed(true)}
+          onError={() => setFailedUrl(faviconUrl)}
           className={size === 'sm' ? 'h-4 w-4 object-contain' : 'h-5 w-5 object-contain'}
         />
       </div>

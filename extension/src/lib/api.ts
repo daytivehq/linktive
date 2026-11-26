@@ -8,7 +8,7 @@ export interface User {
 export interface Workspace {
   id: string
   name: string
-  type: 'personal' | 'organization'
+  type: 'personal' | 'shared'
   role: 'owner' | 'editor' | 'viewer'
 }
 

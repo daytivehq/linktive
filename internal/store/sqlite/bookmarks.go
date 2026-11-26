@@ -873,7 +873,7 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 		       b.last_checked_at, b.created_at, b.updated_at
 		FROM bookmarks b
 		WHERE %s
-		ORDER BY %s
+		ORDER BY %s, b.id
 		LIMIT ? OFFSET ?
 	`, whereClause, orderBy)
 

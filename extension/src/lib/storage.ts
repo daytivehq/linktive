@@ -16,7 +16,7 @@ export function normalizeServerUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, '')
   if (!trimmed) return ''
   if (/^https?:\/\//i.test(trimmed)) return trimmed
-  return `http://${trimmed}`
+  return `https://${trimmed}`
 }
 
 export async function getSettings(): Promise<ExtensionSettings> {

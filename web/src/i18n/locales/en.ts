@@ -108,6 +108,7 @@ export const en = {
   'feed.sharedBy': 'Shared by {owner} · {role}',
   'feed.searchResultCount': '"{query}" · {count} result(s)',
   'feed.saveAsFilter': 'Save as Filter',
+  'feed.loadMore': 'Load more',
   'feed.totalBookmarks': '{count} bookmark(s)',
   'feed.sortRelevance': 'Relevance / Newest',
   'feed.sortNewest': 'Newest',
