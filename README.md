@@ -1,23 +1,25 @@
 # linktive
 
-가볍고 빠른 셀프호스팅 북마크 · 웹 아카이빙 서비스입니다.
+**English** | [한국어](README.ko.md)
 
-## 주요 기능
+A lightweight, fast, self-hosted bookmark and web archiving service.
 
-- **PC·모바일 최적화 UI**: PC 좌·우 독립 스크롤, 모바일 1줄 상단 바 및 드로어 메뉴, 리스트/카드 보기(PC), 표시 항목 선택, 드래그 앤 드롭 컬렉션 정리, 다중 선택 일괄 편집
-- **강력한 한국어 검색 & 필터**: 중간 글자(`래명세` → `거래명세서`), 초성(`ㄱㄹ`), 1~2글자, 띄어쓰기 무시, 저장 본문 통합 검색(On/Off), 연산자(`tags:`, `-tags:`, `site:`, `in:`, `date:`, `after:`, `before:`, `is:favorite`, `is:broken`, `is:blocked`) 및 **필터** 저장
-- **웹 클리핑 & 아카이빙**: 수동/자동 본문 수집(**리더 뷰** · **원본 HTML** · **둘 다** 저장 및 추가 저장), 이미지·CSS 로컬 캐싱(`/data/assets`), 큰 화면 보기, **Markdown+이미지(`.zip`)** · **PDF** 내보내기
-- **URL만으로 빠른 저장 & 링크 점검**: `https://` 생략 가능, 제목·설명·파비콘 자동 수집, **링크 점검**(손상된 링크·접근 제한·중복 URL 탐지 및 정리)
-- **컬렉션 & 공유**: 계층 폴더(전체 접기/펼치기 지원), 아이콘(기본 + Iconify)·색상 커스텀, 로그인 없는 공개 링크(`/share/...`, 아카이빙 본문은 비공개), 사용자/소속 공유(본문 열람 범위 제어 지원)
-- **브라우저 확장 프로그램**: Chrome 웹 스토어 공식 배포, 현재 탭 원클릭 저장 및 주소창 `lk` 즉시 검색 지원
-- **데이터 이동 · 통계 · 자동 백업**: JSON/HTML/Raindrop CSV/Linkwarden/Karakeep 가져오기·내보내기, 소속/서버 사용량 대시보드, 용량 안전장치(기본 `10MB / 30MB`), SQLite 자동 주기 백업(`/data/backups`)
-- **계정·보안 & REST API**: TOTP 2FA(OTP), 관리자 콘솔(회원가입 제어·초대 링크·사용자 관리·고아 에셋 정리·자동 백업), Bearer API 키
+## Key Features
+
+- **Desktop & Mobile-First UI**: Independent left/right scroll panes on desktop, single-row header & slide-out drawer on mobile, list/card view modes, customizable visible fields, drag-and-drop collection sorting, and multi-select bulk actions.
+- **Fast Search & Korean Support**: Substring, Hangul initial consonant (`ㄱㄹ`), 1–2 char, and space-insensitive matching, optional full-text search across archived pages, search operators (`tags:`, `-tags:`, `site:`, `in:`, `date:`, `after:`, `before:`, `is:favorite`, `is:broken`, `is:blocked`), and **Saved Filters**.
+- **Web Clipper & Archiving**: Manual or automatic content capture (**Reader View**, **Original HTML**, or **Both**, plus adding the other format later), local image/CSS caching (`/data/assets`), full-screen viewer, and **Markdown + images (`.zip`)** / **PDF** export.
+- **Quick Save & Link Health**: Auto-fetches title, description, and favicon (`https://` optional), and detects **broken**, **access-blocked**, and **duplicate** URLs.
+- **Collections & Sharing**: Nested folders (expand/collapse all), custom icons (built-in + Iconify) and colors, public read-only links (`/share/...`, archived content stays private), and user/workspace shares with archive visibility controls.
+- **Browser Extension**: Available on the Chrome Web Store with one-click tab saving and `lk` omnibox instant search.
+- **Import / Export · Stats · Auto Backups**: Import/export via JSON, HTML, Raindrop CSV, Linkwarden, or Karakeep; workspace & server usage dashboards; configurable archive size safeguards (default `10MB / 30MB`); automatic SQLite backups (`/data/backups`).
+- **Security · Languages · REST API**: English (default) & Korean UI, TOTP 2FA, Admin Console (signup/invite controls, user management, orphan asset cleanup, backups), and Bearer API keys.
 
 ---
 
-## 빠른 시작 (Docker)
+## Quick Start (Docker)
 
-### 1. `docker-compose.yml` 작성
+### 1. Create `docker-compose.yml`
 
 ```yaml
 services:
@@ -31,52 +33,52 @@ services:
       - ./data:/data
 ```
 
-### 2. 실행 및 접속
+### 2. Start the server
 
 ```bash
 docker compose up -d
 ```
 
-브라우저에서 `http://localhost:18080` 으로 접속하세요.  
-**가장 먼저 가입하는 계정이 자동으로 관리자**로 등록됩니다.
+Open `http://localhost:18080` in your browser.  
+**The first registered account automatically becomes the system administrator.**
 
-> 소스에서 직접 빌드하려면 저장소를 내려받은 뒤 `docker compose up --build -d`를 실행하면 됩니다.
-
----
-
-## 기본 사용 팁
-
-- **`/` 키**: 어디서든 검색창으로 바로 이동합니다.
-- **우클릭 메뉴**: 북마크·컬렉션·필터·태그 위에서 마우스 오른쪽 버튼을 누르면 항목별 작업 메뉴가 열립니다.
-- **아카이빙 본문 바로 열기**: 북마크의 **`아카이빙됨`** 배지를 클릭하면 큰 화면 리더 뷰로 바로 열립니다.
-- **공간 전환 & 관리자 설정**: 우측 상단 계정 아이콘 메뉴에서 공간 전환(공유 소속이 있을 때), **설정**, **관리자 설정**, **로그아웃**을 이용할 수 있습니다.
-- **초대 및 회원가입 제어**: **관리자 설정**에서 공개 회원가입을 끄고 1회용 초대 링크를 발급할 수 있습니다.
-- **REST API**: **설정 → API 키**에서 토큰을 발급할 수 있으며, 자세한 사용법은 [API.md](API.md) 또는 웹 내 **REST API 활용 매뉴얼**(`/api-docs`)에서 확인할 수 있습니다.
+> To build from source, clone the repository and run `docker compose up --build -d`.
 
 ---
 
-## 브라우저 확장 프로그램
+## Quick Tips
 
-Chrome, Edge 등 Chromium 기반 브라우저에서 바로 설치해 사용할 수 있습니다.
+- **`/` shortcut**: Jump straight to the search bar from anywhere.
+- **Context menu**: Right-click any bookmark, collection, filter, or tag for quick actions.
+- **Open archive directly**: Click a bookmark's **`Archived`** badge to open the full-screen reader view immediately.
+- **Account menu (top-right)**: Switch workspaces (when shared workspaces exist), or access **Settings** (including display language), **Extensions**, **Admin Console**, **Sign out**, and the **GitHub version link**.
+- **Signup & invites**: Disable open registration and issue one-time invite links in **Admin Console**.
+- **REST API**: Generate a token under **Settings → API Keys**, and read [API.md](API.md) or the in-app **REST API Manual** (`/api-docs`).
 
-- **Chrome 웹 스토어**: [linktive 설치 페이지](https://chromewebstore.google.com/detail/linktive/opalenmkjhflejpemlkbliiadchgjhje)
-- **초기 연결**: 확장 프로그램 설정에서 linktive **서버 주소**와 **API 키**(`설정 → API 키`)를 입력하세요.
-- **빠른 저장**: 확장 아이콘 클릭 또는 `Alt+Shift+L` (macOS: `Cmd+Shift+L`)
-- **주소창 즉시 검색**: 주소창에 `lk` 입력 후 `Space`/`Tab` + 검색어 입력 (`Enter`: 현재 탭, `Alt+Enter` / macOS `Option+Enter`: 새 탭)
+---
+
+## Browser Extension
+
+Works on Chromium-based browsers such as Chrome and Edge.
+
+- **Chrome Web Store**: [Install linktive](https://chromewebstore.google.com/detail/linktive/opalenmkjhflejpemlkbliiadchgjhje)
+- **Setup**: Enter your linktive **Server URL** and **API Key** (**Settings → API Keys**) in the extension options.
+- **Quick save**: Click the toolbar icon or press `Alt+Shift+L` (macOS: `Cmd+Shift+L`).
+- **Omnibox instant search**: Type `lk` in the address bar, press `Space`/`Tab`, and enter a query (`Enter`: current tab, `Alt+Enter` / macOS `Option+Enter`: new tab).
 
 <details>
-<summary>개발자 모드(소스 직접 빌드)로 설치하기</summary>
+<summary>Install from source (Developer mode)</summary>
 
-1. 빌드: `cd extension && npm install && npm run build`
-2. 브라우저에서 `chrome://extensions` (Edge는 `edge://extensions`) 열기 → **개발자 모드** 활성화
-3. **압축해제된 확장 프로그램을 로드합니다** 선택 후 `extension/dist` 폴더 지정
+1. Build: `cd extension && npm install && npm run build`
+2. Open `chrome://extensions` (or `edge://extensions`) and enable **Developer mode**
+3. Click **Load unpacked** and select the `extension/dist` directory
 
 </details>
 
 ---
 
-## 백업 및 저장 공간
+## Backups & Storage
 
-- **영구 데이터 볼륨(`./data`)**: SQLite DB, `/data/assets`(아카이빙 이미지·CSS), `/data/backups`(자동 백업 스냅샷)가 모두 저장됩니다.
-- **자동 서버 백업**: **관리자 설정 → 자동 데이터베이스 백업**에서 주기·보관 개수 설정, 즉시 백업, 다운로드 및 삭제가 가능합니다.
-- **용량 관리 & 수동 내보내기**: 웹 UI의 **설정 → 통계·사용량** 및 **가져오기·내보내기**, **관리자 설정**에서 사용량 확인과 고아 에셋 정리, JSON/HTML/CSV 백업 다운로드를 할 수 있습니다.
+- **Persistent volume (`./data`)**: Stores the SQLite database, `/data/assets` (archived images & CSS), and `/data/backups` (automatic snapshots).
+- **Automatic backups**: Configure interval, retention count, or trigger/download manual backups under **Admin Console → Automatic Database Backups**.
+- **Storage & exports**: Monitor space usage, clean up orphan assets, and export JSON/HTML/CSV archives from **Settings** and **Admin Console**.

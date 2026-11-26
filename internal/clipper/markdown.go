@@ -47,10 +47,10 @@ func BuildMarkdown(bm domain.Bookmark, ar domain.BookmarkArchive) string {
 	out.WriteString("---\n\n")
 
 	out.WriteString("# " + title + "\n\n")
-	out.WriteString(fmt.Sprintf("> 원문: [%s](%s)\n\n", bm.URL, bm.URL))
+	out.WriteString(fmt.Sprintf("> Source: [%s](%s)\n\n", bm.URL, bm.URL))
 
 	if strings.TrimSpace(bm.Note) != "" {
-		out.WriteString("> [!note] 개인 메모\n")
+		out.WriteString("> [!note] Note\n")
 		for _, line := range strings.Split(strings.TrimSpace(bm.Note), "\n") {
 			out.WriteString("> " + line + "\n")
 		}

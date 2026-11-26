@@ -28,6 +28,7 @@ import {
   PanelRightOpen,
   Pencil,
   Plus,
+  Puzzle,
   RefreshCw,
   Settings,
   Share2,
@@ -76,6 +77,7 @@ import { ApiDocsPage } from './pages/ApiDocsPage';
 import { PublicCollectionPage } from './pages/PublicCollectionPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TagsPage } from './pages/TagsPage';
+import { useI18n } from './i18n';
 import { copyToClipboard } from './utils/clipboard';
 import {
   parseUserSettings,
@@ -95,7 +97,16 @@ import {
   type WorkspaceStats,
 } from './types/bookmark';
 
+function pickDefaultWorkspaceId(user: User, workspaces: Workspace[]): string {
+  const preferred = parseUserSettings(user.settings_json).default_workspace_id;
+  if (preferred && workspaces.some((w) => w.id === preferred)) {
+    return preferred;
+  }
+  return workspaces[0]?.id ?? '';
+}
+
 export function App() {
+  const { t } = useI18n();
   const location = useLocation();
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -116,7 +127,9 @@ export function App() {
         if (!active) return;
         setUser(res.user);
         setWorkspaces(res.workspaces);
-        if (res.workspaces.length > 0) setActiveWorkspaceId(res.workspaces[0].id);
+        if (res.workspaces.length > 0) {
+          setActiveWorkspaceId(pickDefaultWorkspaceId(res.user, res.workspaces));
+        }
       })
       .catch(() => {
         if (active) setUser(null);
@@ -140,7 +153,7 @@ export function App() {
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">
-        불러오는 중...
+        {t('common.loading')}
       </div>
     );
   }
@@ -153,7 +166,7 @@ export function App() {
         onSuccess={(authedUser, userWorkspaces) => {
           setUser(authedUser);
           setWorkspaces(userWorkspaces);
-          setActiveWorkspaceId(userWorkspaces[0]?.id ?? '');
+          setActiveWorkspaceId(pickDefaultWorkspaceId(authedUser, userWorkspaces));
         }}
       />
     );
@@ -188,6 +201,7 @@ function AuthenticatedShell({
   onSetWorkspaces,
   onSelectWorkspace,
 }: AuthenticatedShellProps) {
+  const { setLocale, t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -401,6 +415,10 @@ function AuthenticatedShell({
   }, [showFieldMenu, openTagMenu, openFilterMenu, userMenuOpen]);
 
   const settings = useMemo(() => parseUserSettings(user.settings_json), [user.settings_json]);
+
+  useEffect(() => {
+    setLocale(settings.language);
+  }, [settings.language, setLocale]);
 
   // Derive active route scope from URL path.
   const routeScope = useMemo(() => {
@@ -703,8 +721,8 @@ function AuthenticatedShell({
 
   const handleDeleteBookmark = (bm: Bookmark) => {
     setConfirmState({
-      title: '북마크 삭제',
-      message: `"${bm.title}" 북마크를 삭제할까요?`,
+      title: t('confirm.deleteBookmarkTitle'),
+      message: t('confirm.deleteBookmarkMsg', { title: bm.title }),
       onConfirm: async () => {
         if (isSharedCollectionView && activeSharedCollection) {
           await api.deleteSharedCollectionBookmark(activeSharedCollection.id, bm.id);
@@ -747,7 +765,12 @@ function AuthenticatedShell({
     try {
       const res = await api.checkWorkspaceLinks(activeWorkspace.id, onlyUnchecked);
       setLinkCheckNotice(
-        `총 ${res.checked}개 확인 완료 — 정상 ${res.ok_count}개, 손상 ${res.broken_count}개, 접근 제한 ${res.blocked_count}개`,
+        t('links.checkSummary', {
+          checked: res.checked,
+          ok: res.ok_count,
+          broken: res.broken_count,
+          blocked: res.blocked_count,
+        }),
       );
       await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
     } finally {
@@ -781,8 +804,8 @@ function AuthenticatedShell({
 
   const handleDeleteSavedFilter = (f: SavedFilter) => {
     setConfirmState({
-      title: '필터 삭제',
-      message: `"${f.name}" 필터를 삭제할까요?`,
+      title: t('confirm.deleteFilterTitle'),
+      message: t('confirm.deleteFilterMsg', { name: f.name }),
       onConfirm: async () => {
         await api.deleteSavedFilter(activeWorkspace.id, f.id);
         if (routeScope.kind === 'filter' && routeScope.filterId === f.id) {
@@ -848,8 +871,8 @@ function AuthenticatedShell({
 
   const handleDeleteCollection = (col: Collection) => {
     setConfirmState({
-      title: '컬렉션 삭제',
-      message: `"${col.name}" 컬렉션을 삭제할까요? (하위 북마크는 미분류로 남습니다)`,
+      title: t('confirm.deleteCollectionTitle'),
+      message: t('confirm.deleteCollectionMsg', { name: col.name }),
       onConfirm: async () => {
         await api.deleteCollection(activeWorkspace.id, col.id);
         if (routeScope.kind === 'collection' && routeScope.collectionId === col.id) {
@@ -870,8 +893,8 @@ function AuthenticatedShell({
 
   const handleDeleteTag = (tagName: string) => {
     setConfirmState({
-      title: '태그 삭제',
-      message: `"#${tagName}" 태그를 삭제할까요? (북마크는 삭제되지 않습니다)`,
+      title: t('confirm.deleteTagTitle'),
+      message: t('confirm.deleteTagMsg', { name: tagName }),
       onConfirm: async () => {
         await api.deleteTag(activeWorkspace.id, tagName);
         if (routeScope.kind === 'tag' && routeScope.tagName === tagName) {
@@ -925,8 +948,13 @@ function AuthenticatedShell({
             />
             <h1 className="text-xl font-bold text-slate-900">{activeSharedCollection.name}</h1>
             <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
-              {activeSharedCollection.owner_name} 님 공유 ·{' '}
-              {activeSharedCollection.role === 'editor' ? '편집 가능' : '열람만 가능'}
+              {t('feed.sharedBy', {
+                owner: activeSharedCollection.owner_name,
+                role:
+                  activeSharedCollection.role === 'editor'
+                    ? t('common.canEdit')
+                    : t('common.viewOnly'),
+              })}
             </span>
           </div>
           {activeSharedCollection.description && (
@@ -945,14 +973,14 @@ function AuthenticatedShell({
       {routeScope.kind === 'uncollected' && (
         <div className="mb-5 flex items-center gap-2">
           <Inbox className="h-5 w-5 text-slate-500" />
-          <h1 className="text-xl font-bold text-slate-900">미분류</h1>
+          <h1 className="text-xl font-bold text-slate-900">{t('sidebar.uncollected')}</h1>
         </div>
       )}
 
       {routeScope.kind === 'favorites' && (
         <div className="mb-5 flex items-center gap-2">
           <Star className="h-5 w-5 text-amber-500" />
-          <h1 className="text-xl font-bold text-slate-900">즐겨찾기</h1>
+          <h1 className="text-xl font-bold text-slate-900">{t('sidebar.favorites')}</h1>
         </div>
       )}
 
@@ -981,18 +1009,18 @@ function AuthenticatedShell({
                     initialQuery: activeSavedFilter.query,
                   })
                 }
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
                 <Pencil className="h-3.5 w-3.5" />
-                <span>수정</span>
+                <span>{t('common.edit')}</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleDeleteSavedFilter(activeSavedFilter)}
-                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                <span>삭제</span>
+                <span>{t('common.delete')}</span>
               </button>
             </div>
           )}
@@ -1004,7 +1032,7 @@ function AuthenticatedShell({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Link2Off className="h-5 w-5 text-rose-500" />
-              <h1 className="text-xl font-bold text-slate-900">링크 점검</h1>
+              <h1 className="text-xl font-bold text-slate-900">{t('sidebar.linkHealth')}</h1>
             </div>
             {canEditWorkspace && brokenStatusTab !== 'duplicates' && (
               <div className="flex flex-wrap items-center gap-2">
@@ -1012,19 +1040,19 @@ function AuthenticatedShell({
                   type="button"
                   disabled={checkingLinks}
                   onClick={() => void handleCheckWorkspaceLinks(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${checkingLinks ? 'animate-spin' : ''}`} />
-                  <span>미검사만 확인</span>
+                  <span>{t('links.checkUnchecked')}</span>
                 </button>
                 <button
                   type="button"
                   disabled={checkingLinks}
                   onClick={() => void handleCheckWorkspaceLinks(false)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${checkingLinks ? 'animate-spin' : ''}`} />
-                  <span>{checkingLinks ? '검사 중...' : '전체 링크 검사'}</span>
+                  <span>{checkingLinks ? t('links.checking') : t('links.checkAll')}</span>
                 </button>
               </div>
             )}
@@ -1034,53 +1062,55 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => setBrokenStatusTab('broken')}
-              className={`rounded-full px-3 py-1 font-medium ${
+              className={`whitespace-nowrap rounded-full px-3 py-1 font-medium ${
                 brokenStatusTab === 'broken'
                   ? 'bg-rose-100 text-rose-800'
                   : 'bg-white text-slate-600 hover:bg-slate-100'
               }`}
             >
-              손상됨 ({stats.broken_count})
+              {t('links.tabBroken', { count: stats.broken_count })}
             </button>
             <button
               type="button"
               onClick={() => setBrokenStatusTab('blocked')}
-              className={`rounded-full px-3 py-1 font-medium ${
+              className={`whitespace-nowrap rounded-full px-3 py-1 font-medium ${
                 brokenStatusTab === 'blocked'
                   ? 'bg-amber-100 text-amber-800'
                   : 'bg-white text-slate-600 hover:bg-slate-100'
               }`}
             >
-              접근 제한 ({stats.blocked_count})
+              {t('links.tabBlocked', { count: stats.blocked_count })}
             </button>
             <button
               type="button"
               onClick={() => setBrokenStatusTab('duplicates')}
-              className={`rounded-full px-3 py-1 font-medium ${
+              className={`whitespace-nowrap rounded-full px-3 py-1 font-medium ${
                 brokenStatusTab === 'duplicates'
                   ? 'bg-sky-100 text-sky-800'
                   : 'bg-white text-slate-600 hover:bg-slate-100'
               }`}
             >
-              중복 링크 ({stats.duplicate_count})
+              {t('links.tabDuplicates', { count: stats.duplicate_count })}
             </button>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs leading-relaxed text-slate-600">
             {brokenStatusTab === 'broken' && (
               <span>
-                <strong className="text-rose-700">손상됨</strong>: 페이지 없음(404/410), 서버 오류(5xx), 도메인 연결 실패 등으로 실제 접속이 되지 않는 링크입니다.
+                <strong className="text-rose-700">{t('links.helpBrokenTitle')}</strong>
+                {t('links.helpBrokenDesc')}
               </span>
             )}
             {brokenStatusTab === 'blocked' && (
               <span>
-                <strong className="text-amber-700">접근 제한</strong>: 로그인 필요(401)나 보안·봇 차단(403/429) 때문에 자동 검사만 거절된 링크입니다. 브라우저로 직접 열었을 때 정상 접속된다면{' '}
-                <strong>정상 처리</strong> 버튼으로 목록에서 해제할 수 있습니다.
+                <strong className="text-amber-700">{t('links.helpBlockedTitle')}</strong>
+                {t('links.helpBlockedDesc')}
               </span>
             )}
             {brokenStatusTab === 'duplicates' && (
               <span>
-                <strong className="text-sky-700">중복 링크</strong>: 같은 공간에 동일한 URL이 2개 이상 저장된 항목입니다. 유지할 북마크만 남기고 불필요한 중복 항목을 정리할 수 있습니다.
+                <strong className="text-sky-700">{t('links.helpDuplicatesTitle')}</strong>
+                {t('links.helpDuplicatesDesc')}
               </span>
             )}
           </div>
@@ -1098,9 +1128,8 @@ function AuthenticatedShell({
         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
           {routeScope.kind === 'search' ? (
             <>
-              <span>
-                &ldquo;<strong className="text-slate-800">{routeScope.q}</strong>&rdquo; 검색 결과{' '}
-                <strong className="text-slate-800">{totalBookmarks}</strong>개
+              <span className="font-medium text-slate-700">
+                {t('feed.searchResultCount', { query: routeScope.q, count: totalBookmarks })}
               </span>
               {canEditWorkspace && routeScope.q.trim() && (
                 <button
@@ -1112,17 +1141,15 @@ function AuthenticatedShell({
                       initialQuery: routeScope.q.trim(),
                     })
                   }
-                  className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
                 >
                   <BookmarkPlus className="h-3.5 w-3.5" />
-                  <span>필터로 저장</span>
+                  <span>{t('feed.saveAsFilter')}</span>
                 </button>
               )}
             </>
           ) : (
-            <>
-              북마크 <strong className="text-slate-800">{totalBookmarks}</strong>개
-            </>
+            <span>{t('feed.totalBookmarks', { count: totalBookmarks })}</span>
           )}
         </div>
 
@@ -1132,18 +1159,18 @@ function AuthenticatedShell({
             onChange={(e) => setSortOrder(e.target.value as SortOrder)}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 outline-none"
           >
-            <option value="relevance">관련도/최신순</option>
-            <option value="newest">최신순</option>
-            <option value="oldest">오래된순</option>
-            <option value="title">제목순</option>
+            <option value="relevance">{t('feed.sortRelevance')}</option>
+            <option value="newest">{t('feed.sortNewest')}</option>
+            <option value="oldest">{t('feed.sortOldest')}</option>
+            <option value="title">{t('feed.sortTitle')}</option>
           </select>
 
           <div className="hidden rounded-lg border border-slate-200 bg-white p-0.5 md:flex">
             <button
               type="button"
               onClick={() => void updateSettings({ ...settings, view_mode: 'list' })}
-              title="리스트 형식으로 보기"
-              aria-label="리스트형 보기"
+              title={t('feed.listView')}
+              aria-label={t('feed.listView')}
               className={`rounded-md p-1.5 ${
                 settings.view_mode === 'list' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'
               }`}
@@ -1153,8 +1180,8 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => void updateSettings({ ...settings, view_mode: 'card' })}
-              title="카드 형식으로 보기"
-              aria-label="카드형 보기"
+              title={t('feed.cardView')}
+              aria-label={t('feed.cardView')}
               className={`rounded-md p-1.5 ${
                 settings.view_mode === 'card' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'
               }`}
@@ -1166,10 +1193,10 @@ function AuthenticatedShell({
           <button
             type="button"
             onClick={() => setShowFieldMenu((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
           >
             <SlidersHorizontal className="h-4 w-4" />
-            <span>표시 항목</span>
+            <span>{t('feed.displayFields')}</span>
           </button>
 
           {canEditWorkspace && !isSharedCollectionView && (
@@ -1179,29 +1206,29 @@ function AuthenticatedShell({
                 setSelectMode((prev) => !prev);
                 setSelectedIds(new Set());
               }}
-              aria-label="다중 선택"
-              title="여러 북마크 선택"
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
+              aria-label={t('feed.multiSelect')}
+              title={t('feed.multiSelect')}
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-sm ${
                 selectMode
                   ? 'border-sky-500 bg-sky-50 font-medium text-sky-700'
                   : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
               }`}
             >
               <CheckSquare className="h-4 w-4" />
-              <span>선택</span>
+              <span>{t('feed.select')}</span>
             </button>
           )}
 
           {showFieldMenu && (
-            <div className="absolute right-0 top-10 z-20 w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+            <div className="absolute right-0 top-10 z-20 min-w-48 whitespace-nowrap rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
               {(
                 [
-                  ['thumbnail', '파비콘/도메인'],
-                  ['title', '제목'],
-                  ['description', '설명'],
-                  ['note', '메모'],
-                  ['tags', '태그'],
-                  ['createdAt', '저장 날짜'],
+                  ['thumbnail', t('feed.field.thumbnail')],
+                  ['title', t('feed.field.title')],
+                  ['description', t('feed.field.description')],
+                  ['note', t('feed.field.note')],
+                  ['tags', t('feed.field.tags')],
+                  ['createdAt', t('feed.field.createdAt')],
                 ] as const
               ).map(([key, label]) => (
                 <label
@@ -1233,8 +1260,8 @@ function AuthenticatedShell({
           }}
           onRequestDelete={() =>
             setConfirmState({
-              title: '선택한 북마크 삭제',
-              message: `선택한 ${selectedIds.size}개의 북마크를 삭제할까요?`,
+              title: t('confirm.deleteSelectedTitle'),
+              message: t('confirm.deleteSelectedMsg', { count: selectedIds.size }),
               onConfirm: () => handleBulkExecute({ action: 'delete' }),
             })
           }
@@ -1245,11 +1272,11 @@ function AuthenticatedShell({
       {routeScope.kind === 'broken-links' && brokenStatusTab === 'duplicates' ? (
         loadingBookmarks ? (
           <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">
-            중복 링크를 불러오는 중...
+            {t('feed.loadingDuplicates')}
           </div>
         ) : duplicateResult.groups.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
-            중복 저장된 링크가 없습니다.
+            {t('feed.noDuplicates')}
           </div>
         ) : (
           <div className="space-y-3">
@@ -1268,7 +1295,7 @@ function AuthenticatedShell({
                     {grp.normalized_url}
                   </a>
                   <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">
-                    {grp.count}개 중복
+                    {t('feed.duplicateCount', { count: grp.count })}
                   </span>
                 </div>
                 <div className="divide-y divide-slate-100">
@@ -1288,9 +1315,12 @@ function AuthenticatedShell({
                             {bm.title || bm.domain}
                           </div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                            <span>컬렉션: {col ? col.name : '미분류'}</span>
-                            <span>·</span>
-                            <span>추가일: {bm.created_at.slice(0, 10)}</span>
+                            <span>
+                              {t('feed.duplicateMeta', {
+                                col: col ? col.name : t('common.uncollected'),
+                                date: bm.created_at.slice(0, 10),
+                              })}
+                            </span>
                           </div>
                         </button>
                         <div className="flex shrink-0 items-center gap-1.5">
@@ -1298,7 +1328,7 @@ function AuthenticatedShell({
                             href={bm.url}
                             target="_blank"
                             rel="noreferrer"
-                            title="새 탭에서 열기"
+                            title={t('feed.openNewTab')}
                             className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
@@ -1307,11 +1337,11 @@ function AuthenticatedShell({
                             <button
                               type="button"
                               onClick={() => handleDeleteBookmark(bm)}
-                              title="이 중복 북마크 삭제"
-                              className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                              title={t('feed.deleteDuplicateTitle')}
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                              <span>삭제</span>
+                              <span>{t('common.delete')}</span>
                             </button>
                           )}
                         </div>
@@ -1325,12 +1355,11 @@ function AuthenticatedShell({
         )
       ) : loadingBookmarks && bookmarks.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">
-          북마크를 불러오는 중...
+          {t('feed.loadingBookmarks')}
         </div>
       ) : bookmarks.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
-          표시할 북마크가 없습니다. 상단의 <strong>사이트 추가</strong> 버튼으로 링크를 저장해
-          보세요.
+          {t('feed.noBookmarks')}
         </div>
       ) : (
         <div
@@ -1353,31 +1382,31 @@ function AuthenticatedShell({
                   e.stopPropagation();
                   const items: ContextMenuItem[] = [
                     {
-                      label: '새 탭으로 열기',
+                      label: t('feed.openNewTab'),
                       Icon: ExternalLink,
                       onClick: () => window.open(bm.url, '_blank', 'noopener,noreferrer'),
                     },
                     {
-                      label: '세부정보 보기',
+                      label: t('feed.ctx.viewDetails'),
                       Icon: PanelRightOpen,
                       onClick: () => setDetailDrawer({ bookmark: bm, editing: false }),
                     },
                     ...(canEditCurrentView
                       ? [
                           {
-                            label: '수정',
+                            label: t('common.edit'),
                             Icon: Pencil,
                             onClick: () => setDetailDrawer({ bookmark: bm, editing: true }),
                           },
                           {
-                            label: bm.is_favorite ? '즐겨찾기 해제' : '즐겨찾기 추가',
+                            label: bm.is_favorite ? t('feed.ctx.unfavorite') : t('feed.ctx.favorite'),
                             Icon: Star,
                             onClick: () => void handleToggleFavorite(bm),
                           },
                           ...(!isSharedCollectionView && (bm.link_status === 'broken' || bm.link_status === 'blocked')
                             ? [
                                 {
-                                  label: '링크 정상 처리',
+                                  label: t('feed.ctx.markLinkOk'),
                                   Icon: CheckCircle2,
                                   onClick: () => void handleMarkBookmarkLinkOk(bm),
                                 },
@@ -1386,14 +1415,14 @@ function AuthenticatedShell({
                         ]
                       : []),
                     {
-                      label: 'URL 복사',
+                      label: t('feed.ctx.copyUrl'),
                       Icon: Copy,
                       onClick: () => void copyToClipboard(bm.url),
                     },
                     ...(canEditCurrentView
                       ? [
                           {
-                            label: '삭제',
+                            label: t('common.delete'),
                             Icon: Trash2,
                             danger: true,
                             dividerBefore: true,
@@ -1443,15 +1472,15 @@ function AuthenticatedShell({
                             <HighlightText text={bm.domain} query={urlQuery} />
                           </span>
                           {bm.link_status === 'broken' && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                            <span className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
                               <AlertTriangle className="h-2.5 w-2.5" />
-                              손상됨
+                              {t('feed.badge.broken')}
                             </span>
                           )}
                           {bm.link_status === 'blocked' && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                            <span className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
                               <ShieldAlert className="h-2.5 w-2.5" />
-                              접근제한
+                              {t('feed.badge.blocked')}
                             </span>
                           )}
                           {bm.archive_status === 'ready' && (
@@ -1466,16 +1495,16 @@ function AuthenticatedShell({
                                   initialExpanded: true,
                                 });
                               }}
-                              title="큰 화면으로 아카이빙 본문 보기"
-                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
+                              title={t('feed.badge.archivedTooltip')}
+                              className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
                             >
                               <BookOpen className="h-2.5 w-2.5" />
-                              아카이빙됨
+                              {t('feed.badge.archived')}
                             </button>
                           )}
                           {bm.archive_status === 'pending' && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                              클리핑 중
+                            <span className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                              {t('feed.badge.clipping')}
                             </span>
                           )}
                         </div>
@@ -1490,7 +1519,7 @@ function AuthenticatedShell({
                           void handleToggleFavorite(bm);
                         }}
                         disabled={!canEditCurrentView}
-                        title="즐겨찾기"
+                        title={t('sidebar.favorites')}
                         className={`rounded p-1 ${
                           bm.is_favorite ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500'
                         }`}
@@ -1503,7 +1532,7 @@ function AuthenticatedShell({
                           e.stopPropagation();
                           setDetailDrawer({ bookmark: bm, editing: false });
                         }}
-                        title="세부정보 / 수정"
+                        title={t('feed.menu.detailsEdit')}
                         className="block rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 md:hidden md:group-hover:block"
                       >
                         <PanelRightOpen className="h-3.5 w-3.5" />
@@ -1569,8 +1598,8 @@ function AuthenticatedShell({
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(true)}
-            title="메뉴 열기"
-            aria-label="메뉴 열기"
+            title={t('nav.openMenu')}
+            aria-label={t('nav.openMenu')}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 md:hidden"
           >
             <Menu className="h-4 w-4" />
@@ -1602,12 +1631,12 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => setAddModalOpen(true)}
-              title="사이트 추가"
-              aria-label="사이트 추가"
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-2.5 text-sm font-medium text-white hover:bg-sky-700 md:px-3"
+              title={t('nav.addSite')}
+              aria-label={t('nav.addSite')}
+              className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-sky-600 px-2.5 text-sm font-medium text-white hover:bg-sky-700 md:px-3"
             >
               <Plus className="h-4 w-4" />
-              <span className="hidden md:inline">사이트 추가</span>
+              <span className="hidden md:inline">{t('nav.addSite')}</span>
             </button>
           )}
           <div ref={userMenuRef} className="relative">
@@ -1617,8 +1646,8 @@ function AuthenticatedShell({
                 setUserMenuOpen((prev) => !prev);
                 setWorkspacePickerOpen(false);
               }}
-              title="계정 및 메뉴"
-              aria-label="계정 및 메뉴"
+              title={t('nav.accountMenu')}
+              aria-label={t('nav.accountMenu')}
               aria-expanded={userMenuOpen}
               className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
                 userMenuOpen || routeScope.kind === 'settings' || routeScope.kind === 'admin'
@@ -1630,7 +1659,7 @@ function AuthenticatedShell({
             </button>
 
             {userMenuOpen && (
-              <div className="absolute right-0 top-11 z-40 w-60 rounded-xl border border-slate-200 bg-white p-1.5 text-sm shadow-xl">
+              <div className="absolute right-0 top-11 z-40 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-slate-200 bg-white p-1.5 text-sm shadow-xl">
                 <div className="border-b border-slate-100 px-3 py-2">
                   <div className="truncate font-semibold text-slate-900">{user.name}</div>
                   <div className="truncate text-xs text-slate-400">{user.email}</div>
@@ -1646,7 +1675,7 @@ function AuthenticatedShell({
                       >
                         <span className="flex min-w-0 items-center gap-2">
                           <Layers className="h-4 w-4 shrink-0 text-slate-500" />
-                          <span className="truncate font-medium">공간 전환</span>
+                          <span className="truncate font-medium">{t('nav.switchWorkspace')}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
                           <span className="max-w-[76px] truncate">{activeWorkspace.name}</span>
@@ -1677,7 +1706,8 @@ function AuthenticatedShell({
                                 }`}
                               >
                                 <span className="truncate">
-                                  {ws.name} ({ws.type === 'personal' ? '개인' : '공유'})
+                                  {ws.name} (
+                                  {ws.type === 'personal' ? t('common.personal') : t('common.shared')})
                                 </span>
                                 {selected && <Check className="h-3.5 w-3.5 shrink-0 text-sky-600" />}
                               </button>
@@ -1693,9 +1723,23 @@ function AuthenticatedShell({
                     onClick={() => goScope('/settings')}
                     className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-slate-700 hover:bg-slate-100"
                   >
-                    <Settings className="h-4 w-4 text-slate-500" />
-                    <span>설정</span>
+                    <Settings className="h-4 w-4 shrink-0 text-slate-500" />
+                    <span className="truncate">{t('nav.settings')}</span>
                   </button>
+
+                  <a
+                    href="https://chromewebstore.google.com/detail/linktive/opalenmkjhflejpemlkbliiadchgjhje"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-slate-700 hover:bg-slate-100"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Puzzle className="h-4 w-4 shrink-0 text-sky-600" />
+                      <span className="truncate">{t('nav.extensions')}</span>
+                    </span>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  </a>
 
                   {user.is_admin && (
                     <button
@@ -1703,8 +1747,8 @@ function AuthenticatedShell({
                       onClick={() => goScope('/admin')}
                       className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-slate-700 hover:bg-slate-100"
                     >
-                      <Shield className="h-4 w-4 text-indigo-600" />
-                      <span>관리자 설정</span>
+                      <Shield className="h-4 w-4 shrink-0 text-indigo-600" />
+                      <span className="truncate">{t('nav.admin')}</span>
                     </button>
                   )}
                 </div>
@@ -1715,9 +1759,23 @@ function AuthenticatedShell({
                     onClick={() => void handleLogout()}
                     className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-rose-600 hover:bg-rose-50"
                   >
-                    <LogOut className="h-4 w-4" />
-                    <span>로그아웃</span>
+                    <LogOut className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t('nav.logout')}</span>
                   </button>
+                </div>
+
+                <div className="mt-1 border-t border-slate-100 pt-1">
+                  <a
+                    href="https://github.com/daytivehq/linktive"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setUserMenuOpen(false)}
+                    title={t('nav.githubTooltip')}
+                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+                  >
+                    <span>linktive v{__APP_VERSION__}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
                 </div>
               </div>
             )}
@@ -1754,8 +1812,8 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(false)}
-              title="메뉴 닫기"
-              aria-label="메뉴 닫기"
+              title={t('nav.closeMenu')}
+              aria-label={t('nav.closeMenu')}
               className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
             >
               <X className="h-4 w-4" />
@@ -1766,17 +1824,17 @@ function AuthenticatedShell({
               <button
                 type="button"
                 onClick={() => goScope('/bookmarks')}
-                className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 font-medium ${
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 font-medium ${
                   routeScope.kind === 'all'
                     ? 'bg-sky-50 text-sky-700'
                     : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <span className="flex items-center gap-2">
-                  <BookmarkIcon className="h-4 w-4" />
-                  모든 북마크
+                <span className="flex min-w-0 items-center gap-2">
+                  <BookmarkIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t('sidebar.allBookmarks')}</span>
                 </span>
-                <span className="text-xs text-slate-400">{stats.all_count}</span>
+                <span className="shrink-0 text-xs text-slate-400">{stats.all_count}</span>
               </button>
 
               <button
@@ -1797,7 +1855,7 @@ function AuthenticatedShell({
                   const bmId = e.dataTransfer.getData(MIME_BOOKMARK_DRAG);
                   if (bmId && canEditWorkspace) void handleDropBookmarkToFavorite(bmId);
                 }}
-                className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 font-medium ${
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 font-medium ${
                   sidebarDropTarget === 'favorites'
                     ? 'bg-amber-50 ring-1 ring-amber-400'
                     : routeScope.kind === 'favorites'
@@ -1805,11 +1863,11 @@ function AuthenticatedShell({
                       : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <span className="flex items-center gap-2">
-                  <Star className="h-4 w-4 text-amber-500" />
-                  즐겨찾기
+                <span className="flex min-w-0 items-center gap-2">
+                  <Star className="h-4 w-4 shrink-0 text-amber-500" />
+                  <span className="truncate">{t('sidebar.favorites')}</span>
                 </span>
-                <span className="text-xs text-slate-400">{stats.favorite_count}</span>
+                <span className="shrink-0 text-xs text-slate-400">{stats.favorite_count}</span>
               </button>
 
               <button
@@ -1830,7 +1888,7 @@ function AuthenticatedShell({
                   const bmId = e.dataTransfer.getData(MIME_BOOKMARK_DRAG);
                   if (bmId && canEditWorkspace) void handleDropBookmarkToCollection(bmId, null);
                 }}
-                className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 font-medium ${
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 font-medium ${
                   sidebarDropTarget === 'uncollected'
                     ? 'bg-sky-100 ring-1 ring-sky-400'
                     : routeScope.kind === 'uncollected'
@@ -1838,29 +1896,33 @@ function AuthenticatedShell({
                       : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <span className="flex items-center gap-2">
-                  <Inbox className="h-4 w-4 text-slate-500" />
-                  미분류
+                <span className="flex min-w-0 items-center gap-2">
+                  <Inbox className="h-4 w-4 shrink-0 text-slate-500" />
+                  <span className="truncate">{t('sidebar.uncollected')}</span>
                 </span>
-                <span className="text-xs text-slate-400">{stats.uncollected_count}</span>
+                <span className="shrink-0 text-xs text-slate-400">{stats.uncollected_count}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => goScope('/broken-links')}
-                title={`손상됨 ${stats.broken_count}개 · 접근 제한 ${stats.blocked_count}개 · 중복 ${stats.duplicate_count}개`}
-                className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 font-medium ${
+                title={t('sidebar.linkHealthTooltip', {
+                  broken: stats.broken_count,
+                  blocked: stats.blocked_count,
+                  duplicates: stats.duplicate_count,
+                })}
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 font-medium ${
                   routeScope.kind === 'broken-links'
                     ? 'bg-rose-50 text-rose-700'
                     : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <span className="flex items-center gap-2">
-                  <Link2Off className="h-4 w-4 text-rose-500" />
-                  링크 점검
+                <span className="flex min-w-0 items-center gap-2">
+                  <Link2Off className="h-4 w-4 shrink-0 text-rose-500" />
+                  <span className="truncate">{t('sidebar.linkHealth')}</span>
                 </span>
                 <span
-                  className={`text-xs ${
+                  className={`shrink-0 text-xs ${
                     stats.broken_count + stats.blocked_count > 0
                       ? 'font-semibold text-rose-600'
                       : 'text-slate-400'
@@ -1887,7 +1949,7 @@ function AuthenticatedShell({
                       return next;
                     });
                   }}
-                  title="컬렉션 목록 접기/펼치기"
+                  title={t('sidebar.toggleCollections')}
                   className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] font-bold tracking-tight text-slate-700 hover:text-sky-600"
                 >
                   {collectionsOpen ? (
@@ -1895,7 +1957,7 @@ function AuthenticatedShell({
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
                   )}
-                  <span>컬렉션</span>
+                  <span>{t('sidebar.collections')}</span>
                 </button>
                 <div className="flex items-center gap-0.5">
                   {collections.length > 0 && (
@@ -1909,8 +1971,12 @@ function AuthenticatedShell({
                           setCollectionsOpen(true);
                         }
                       }}
-                      title={allColsExpanded ? '모든 하위 컬렉션 접기' : '모든 하위 컬렉션 펼치기'}
-                      aria-label={allColsExpanded ? '모든 하위 컬렉션 접기' : '모든 하위 컬렉션 펼치기'}
+                      title={
+                        allColsExpanded ? t('sidebar.collapseAllCols') : t('sidebar.expandAllCols')
+                      }
+                      aria-label={
+                        allColsExpanded ? t('sidebar.collapseAllCols') : t('sidebar.expandAllCols')
+                      }
                       className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                     >
                       {allColsExpanded ? (
@@ -1926,7 +1992,7 @@ function AuthenticatedShell({
                       onClick={() =>
                         setCollectionModal({ open: true, editing: null, initialParentId: null })
                       }
-                      title="새 컬렉션"
+                      title={t('sidebar.newCollection')}
                       className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                     >
                       <FolderPlus className="h-4 w-4" />
@@ -1964,14 +2030,14 @@ function AuthenticatedShell({
                   onContextMenu={(e, col) => {
                     const items: ContextMenuItem[] = [
                       {
-                        label: '컬렉션 열기',
+                        label: t('sidebar.openCollection'),
                         Icon: FolderOpen,
                         onClick: () => goScope(`/collections/${encodeURIComponent(col.id)}`),
                       },
                       ...(canEditWorkspace
                         ? [
                             {
-                              label: '하위 컬렉션 추가',
+                              label: t('sidebar.addSubcollection'),
                               Icon: FolderPlus,
                               onClick: () =>
                                 setCollectionModal({
@@ -1981,7 +2047,7 @@ function AuthenticatedShell({
                                 }),
                             },
                             {
-                              label: '수정',
+                              label: t('common.edit'),
                               Icon: Pencil,
                               onClick: () =>
                                 setCollectionModal({
@@ -1991,12 +2057,12 @@ function AuthenticatedShell({
                                 }),
                             },
                             {
-                              label: '공유 및 공개',
+                              label: t('sidebar.shareAndPublic'),
                               Icon: Share2,
                               onClick: () => setShareModalCollection(col),
                             },
                             {
-                              label: '삭제',
+                              label: t('common.delete'),
                               Icon: Trash2,
                               danger: true,
                               dividerBefore: true,
@@ -2017,7 +2083,7 @@ function AuthenticatedShell({
                 <div className="mb-1.5 flex items-center gap-1.5 px-2.5">
                   <Users className="h-3.5 w-3.5 text-slate-500" />
                   <span className="text-[13px] font-bold tracking-tight text-slate-700">
-                    공유받은 컬렉션
+                    {t('sidebar.sharedCollections')}
                   </span>
                 </div>
                 <div className="space-y-0.5">
@@ -2040,7 +2106,7 @@ function AuthenticatedShell({
                           <span className="truncate">{sc.name}</span>
                         </span>
                         <span className="ml-1 shrink-0 text-[11px] text-slate-400">
-                          {sc.role === 'editor' ? '편집' : '열람'}
+                          {sc.role === 'editor' ? t('common.editShort') : t('common.viewOnlyShort')}
                         </span>
                       </button>
                     );
@@ -2065,7 +2131,7 @@ function AuthenticatedShell({
                       return next;
                     });
                   }}
-                  title="필터 목록 접기/펼치기"
+                  title={t('sidebar.toggleFilters')}
                   className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] font-bold tracking-tight text-slate-700 hover:text-sky-600"
                 >
                   {filtersOpen ? (
@@ -2073,7 +2139,7 @@ function AuthenticatedShell({
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
                   )}
-                  <span>필터</span>
+                  <span>{t('sidebar.filters')}</span>
                 </button>
                 {canEditWorkspace && (
                   <button
@@ -2081,8 +2147,8 @@ function AuthenticatedShell({
                     onClick={() =>
                       setSavedFilterModal({ open: true, editing: null, initialQuery: '' })
                     }
-                    title="새 필터"
-                    aria-label="새 필터"
+                    title={t('sidebar.newFilter')}
+                    aria-label={t('sidebar.newFilter')}
                     className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                   >
                     <Plus className="h-4 w-4" />
@@ -2091,7 +2157,7 @@ function AuthenticatedShell({
               </div>
               {filtersOpen &&
                 (savedFilters.length === 0 ? (
-                  <p className="px-2.5 text-xs text-slate-400">필터가 없습니다.</p>
+                  <p className="px-2.5 text-xs text-slate-400">{t('sidebar.noFilters')}</p>
                 ) : (
                   <div className="space-y-0.5">
                     {savedFilters.map((f) => {
@@ -2106,14 +2172,14 @@ function AuthenticatedShell({
                               setOpenFilterMenu(null);
                               const items: ContextMenuItem[] = [
                                 {
-                                  label: '필터 열기',
+                                  label: t('sidebar.openFilter'),
                                   Icon: Filter,
                                   onClick: () => goScope(`/filters/${encodeURIComponent(f.id)}`),
                                 },
                                 ...(canEditWorkspace
                                   ? [
                                       {
-                                        label: '수정',
+                                        label: t('common.edit'),
                                         Icon: Pencil,
                                         onClick: () =>
                                           setSavedFilterModal({
@@ -2123,7 +2189,7 @@ function AuthenticatedShell({
                                           }),
                                       },
                                       {
-                                        label: '삭제',
+                                        label: t('common.delete'),
                                         Icon: Trash2,
                                         danger: true,
                                         dividerBefore: true,
@@ -2159,8 +2225,8 @@ function AuthenticatedShell({
                                   e.stopPropagation();
                                   setOpenFilterMenu((prev) => (prev === f.id ? null : f.id));
                                 }}
-                                title="필터 메뉴"
-                                aria-label="필터 메뉴"
+                                title={t('sidebar.filterMenu')}
+                                aria-label={t('sidebar.filterMenu')}
                                 className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
                                   isMenuOpen
                                     ? 'block bg-white text-slate-700'
@@ -2175,7 +2241,7 @@ function AuthenticatedShell({
                           {isMenuOpen && canEditWorkspace && (
                             <div
                               onMouseDown={(e) => e.stopPropagation()}
-                              className="absolute right-1 top-8 z-30 w-32 rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
+                              className="absolute right-1 top-8 z-30 min-w-36 whitespace-nowrap rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
                             >
                               <button
                                 type="button"
@@ -2190,7 +2256,7 @@ function AuthenticatedShell({
                                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
                               >
                                 <Pencil className="h-3.5 w-3.5 text-slate-500" />
-                                <span>수정</span>
+                                <span>{t('common.edit')}</span>
                               </button>
                               <button
                                 type="button"
@@ -2201,7 +2267,7 @@ function AuthenticatedShell({
                                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-rose-600 hover:bg-rose-50"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
-                                <span>삭제</span>
+                                <span>{t('common.delete')}</span>
                               </button>
                             </div>
                           )}
@@ -2229,8 +2295,8 @@ function AuthenticatedShell({
                         return next;
                       });
                     }}
-                    title="태그 목록 접기/펼치기"
-                    aria-label="태그 목록 접기/펼치기"
+                    title={t('sidebar.toggleTags')}
+                    aria-label={t('sidebar.toggleTags')}
                     className="rounded p-0.5 text-slate-500 hover:text-slate-700"
                   >
                     {tagsOpen ? (
@@ -2246,21 +2312,21 @@ function AuthenticatedShell({
                       routeScope.kind === 'tags-index' ? 'text-sky-600' : 'text-slate-700'
                     }`}
                   >
-                    태그
+                    {t('sidebar.tags')}
                   </button>
                 </div>
               </div>
               {tagsOpen &&
                 (tags.length === 0 ? (
-                  <p className="px-2.5 text-xs text-slate-400">태그가 없습니다.</p>
+                  <p className="px-2.5 text-xs text-slate-400">{t('sidebar.noTags')}</p>
                 ) : (
                   <div className="space-y-0.5">
-                    {tags.map((t) => {
+                    {tags.map((tag) => {
                       const isTagActive =
-                        routeScope.kind === 'tag' && routeScope.tagName === t.name;
-                      const isMenuOpen = openTagMenu === t.name;
+                        routeScope.kind === 'tag' && routeScope.tagName === tag.name;
+                      const isMenuOpen = openTagMenu === tag.name;
                       return (
-                        <div key={t.name} className="relative">
+                        <div key={tag.name} className="relative">
                           <div
                             onContextMenu={(e) => {
                               e.preventDefault();
@@ -2268,23 +2334,23 @@ function AuthenticatedShell({
                               setOpenTagMenu(null);
                               const items: ContextMenuItem[] = [
                                 {
-                                  label: '태그 북마크 보기',
+                                  label: t('sidebar.viewTagBookmarks'),
                                   Icon: Hash,
-                                  onClick: () => goScope(`/tags/${encodeURIComponent(t.name)}`),
+                                  onClick: () => goScope(`/tags/${encodeURIComponent(tag.name)}`),
                                 },
                                 ...(canEditWorkspace
                                   ? [
                                       {
-                                        label: '이름 수정',
+                                        label: t('sidebar.renameTag'),
                                         Icon: Pencil,
-                                        onClick: () => setRenameTagTarget(t.name),
+                                        onClick: () => setRenameTagTarget(tag.name),
                                       },
                                       {
-                                        label: '삭제',
+                                        label: t('common.delete'),
                                         Icon: Trash2,
                                         danger: true,
                                         dividerBefore: true,
-                                        onClick: () => handleDeleteTag(t.name),
+                                        onClick: () => handleDeleteTag(tag.name),
                                       },
                                     ]
                                   : []),
@@ -2302,12 +2368,12 @@ function AuthenticatedShell({
                             onClick={() =>
                               isTagActive
                                 ? goScope('/bookmarks')
-                                : goScope(`/tags/${encodeURIComponent(t.name)}`)
+                                : goScope(`/tags/${encodeURIComponent(tag.name)}`)
                             }
                             className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left"
                           >
                             <Hash className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                            <span className="truncate">{t.name}</span>
+                            <span className="truncate">{tag.name}</span>
                           </button>
 
                           <div className="flex items-center gap-1">
@@ -2317,10 +2383,10 @@ function AuthenticatedShell({
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setOpenTagMenu((prev) => (prev === t.name ? null : t.name));
+                                  setOpenTagMenu((prev) => (prev === tag.name ? null : tag.name));
                                 }}
-                                title="태그 메뉴"
-                                aria-label="태그 메뉴"
+                                title={t('sidebar.tagMenu')}
+                                aria-label={t('sidebar.tagMenu')}
                                 className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
                                   isMenuOpen ? 'block bg-white text-slate-700' : 'block md:hidden md:group-hover:block'
                                 }`}
@@ -2333,7 +2399,7 @@ function AuthenticatedShell({
                                 canEditWorkspace ? 'md:group-hover:hidden' : ''
                               } ${isMenuOpen ? 'hidden' : ''}`}
                             >
-                              {t.count}
+                              {tag.count}
                             </span>
                           </div>
                         </div>
@@ -2341,29 +2407,29 @@ function AuthenticatedShell({
                         {isMenuOpen && canEditWorkspace && (
                           <div
                             onMouseDown={(e) => e.stopPropagation()}
-                            className="absolute right-1 top-8 z-30 w-36 rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
+                            className="absolute right-1 top-8 z-30 min-w-36 whitespace-nowrap rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
                           >
                             <button
                               type="button"
                               onClick={() => {
                                 setOpenTagMenu(null);
-                                setRenameTagTarget(t.name);
+                                setRenameTagTarget(tag.name);
                               }}
                               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
                             >
                               <Pencil className="h-3.5 w-3.5 text-slate-500" />
-                              <span>이름 수정</span>
+                              <span>{t('sidebar.renameTag')}</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => {
                                 setOpenTagMenu(null);
-                                handleDeleteTag(t.name);
+                                handleDeleteTag(tag.name);
                               }}
                               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-rose-600 hover:bg-rose-50"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                              <span>삭제</span>
+                              <span>{t('common.delete')}</span>
                             </button>
                           </div>
                         )}

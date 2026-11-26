@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
+import { useI18n } from '../i18n';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface ApiDocsPageProps {
@@ -8,6 +9,7 @@ interface ApiDocsPageProps {
 }
 
 export function ApiDocsPage({ activeWorkspaceId, onBack }: ApiDocsPageProps) {
+  const { locale, t } = useI18n();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:18080';
 
@@ -19,71 +21,80 @@ export function ApiDocsPage({ activeWorkspaceId, onBack }: ApiDocsPageProps) {
     }
   };
 
+  const sampleCreateBody =
+    locale === 'ko'
+      ? '{"url":"https://example.com","tags":["개발","문서"],"is_favorite":true}'
+      : '{"url":"https://example.com","tags":["dev","docs"],"is_favorite":true}';
+  const sampleBulkBody =
+    locale === 'ko'
+      ? '{"bookmark_ids":["BM_ID_1","BM_ID_2"],"action":"tags_add","tags":["정리됨"]}'
+      : '{"bookmark_ids":["BM_ID_1","BM_ID_2"],"action":"tags_add","tags":["reviewed"]}';
+
   const examples = [
     {
       id: 'list',
-      title: '1. 북마크 목록 조회 및 한국어 검색',
-      desc: '중간글자(래명세), 초성(ㄱㄹ), 1~2글자, 연산자(tags:, -tags:, site:, in:, date:, after:, before:, is:favorite, is:broken, is:blocked)를 그대로 전달합니다.',
-      cmd: `curl -sS "${origin}/api/v1/workspaces/${activeWorkspaceId}/bookmarks?q=%EB%9E%98%EB%AA%85%EC%84%B8&limit=20" \\\n  -H "Authorization: Bearer lkt_YOUR_API_KEY"`,
+      title: t('apiDocs.ex1Title'),
+      desc: t('apiDocs.ex1Desc'),
+      cmd: `curl -sS "${origin}/api/v1/workspaces/${activeWorkspaceId}/bookmarks?q=tags%3Adev&limit=20" \\\n  -H "Authorization: Bearer lkt_YOUR_API_KEY"`,
     },
     {
       id: 'create',
-      title: '2. 북마크 추가 (URL만 전달 시 제목·설명·파비콘 자동 수집)',
-      desc: 'https:// 를 생략해도 자동 보정되며, 중복 URL 감지 시 409 Conflict와 기존 북마크 정보를 반환합니다.',
-      cmd: `curl -sS -X POST "${origin}/api/v1/workspaces/${activeWorkspaceId}/bookmarks" \\\n  -H "Authorization: Bearer lkt_YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"url":"https://example.com","tags":["개발","문서"],"is_favorite":true}'`,
+      title: t('apiDocs.ex2Title'),
+      desc: t('apiDocs.ex2Desc'),
+      cmd: `curl -sS -X POST "${origin}/api/v1/workspaces/${activeWorkspaceId}/bookmarks" \\\n  -H "Authorization: Bearer lkt_YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${sampleCreateBody}'`,
     },
     {
       id: 'bulk',
-      title: '3. 북마크 일괄 수정 (Bulk)',
-      desc: 'action: favorite | unfavorite | move | delete | tags_add | tags_set | tags_remove',
-      cmd: `curl -sS -X POST "${origin}/api/v1/workspaces/${activeWorkspaceId}/bookmarks/bulk" \\\n  -H "Authorization: Bearer lkt_YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"bookmark_ids":["BM_ID_1","BM_ID_2"],"action":"tags_add","tags":["정리됨"]}'`,
+      title: t('apiDocs.ex3Title'),
+      desc: t('apiDocs.ex3Desc'),
+      cmd: `curl -sS -X POST "${origin}/api/v1/workspaces/${activeWorkspaceId}/bookmarks/bulk" \\\n  -H "Authorization: Bearer lkt_YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${sampleBulkBody}'`,
     },
     {
       id: 'export',
-      title: '4. 전체 데이터 백업 내보내기 (JSON / HTML / CSV)',
-      desc: '크론잡이나 홈서버 백업 스크립트에서 주기적으로 JSON 전체 백업을 받아둘 수 있습니다.',
+      title: t('apiDocs.ex4Title'),
+      desc: t('apiDocs.ex4Desc'),
       cmd: `curl -sS "${origin}/api/v1/workspaces/${activeWorkspaceId}/export?format=json" \\\n  -H "Authorization: Bearer lkt_YOUR_API_KEY" -o linktive-backup.json`,
     },
   ];
 
   const endpoints = [
-    { method: 'GET', path: '/api/v1/health', auth: '불필요', desc: '서버 및 SQLite DB 상태 확인' },
-    { method: 'GET', path: '/api/v1/auth/me', auth: '필요', desc: '현재 사용자 정보 및 소속 목록 조회' },
-    { method: 'GET', path: '/api/v1/workspaces', auth: '필요', desc: '소속(개인/공유) 목록 조회' },
-    { method: 'POST', path: '/api/v1/workspaces', auth: '필요', desc: '새 공유 소속 생성' },
-    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}', auth: 'Owner', desc: '소속 이름 변경' },
-    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}', auth: 'Owner', desc: '공유 소속 삭제' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/collections', auth: 'Viewer+', desc: '컬렉션 목록 및 북마크 수 조회' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/collections', auth: 'Editor+', desc: '컬렉션 생성' },
-    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/collections/{colID}', auth: 'Editor+', desc: '컬렉션 수정/상위 폴더 이동' },
-    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/collections/{colID}', auth: 'Editor+', desc: '컬렉션 삭제' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks', auth: 'Viewer+', desc: '북마크 조회 및 검색 (`q`, `collection_id`, `include_children`, `favorite`, `tag`, `link_status`, `search_archive`, `sort`, `limit`, `offset`)' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks', auth: 'Editor+', desc: '북마크 추가 (중복 시 409, `allow_duplicate: true`, `clip_now: true` 지원)' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}', auth: 'Viewer+', desc: '단일 북마크 상세 조회' },
-    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}', auth: 'Editor+', desc: '북마크 수정 및 타 소속 이동(`target_workspace_id`)' },
-    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}', auth: 'Editor+', desc: '북마크 및 아카이빙 에셋 삭제' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/bulk', auth: 'Editor+', desc: '여러 북마크 일괄 처리' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/archive', auth: 'Viewer+', desc: '아카이빙된 읽기 전용 본문 조회' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/archive', auth: 'Editor+', desc: '수동 웹페이지 본문 클리핑 실행' },
-    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/archive', auth: 'Editor+', desc: '아카이빙 본문 및 로컬 이미지 삭제' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/export/markdown', auth: 'Viewer+', desc: 'Markdown(.md) 파일 다운로드' },
-    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/archives', auth: 'Editor+', desc: '소속 내 아카이빙 데이터 모두 비우기' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/usage', auth: 'Viewer+', desc: '소속 내 북마크·아카이빙 개수 및 사용량 통계' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/check-link', auth: 'Editor+', desc: '단일 북마크 링크 연결 상태 확인' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/link-status', auth: 'Editor+', desc: '북마크 링크 상태 수동 지정 (`ok`, `broken`, `blocked`, `unknown`)' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/links/check', auth: 'Editor+', desc: '공간 내 북마크 링크 상태 일괄 점검' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/links/duplicates', auth: 'Viewer+', desc: '동일 URL 중복 북마크 그룹 조회' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/filters', auth: 'Viewer+', desc: '저장된 필터 목록 조회' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/filters', auth: 'Editor+', desc: '필터 생성' },
-    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/filters/{filterID}', auth: 'Editor+', desc: '필터 수정' },
-    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/filters/{filterID}', auth: 'Editor+', desc: '필터 삭제' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/tags', auth: 'Viewer+', desc: '태그 목록 및 개수 조회' },
-    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/tags/{tagName}', auth: 'Editor+', desc: '태그 이름 수정/병합' },
-    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/tags/{tagName}', auth: 'Editor+', desc: '태그 삭제' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/stats', auth: 'Viewer+', desc: '전체·즐겨찾기·미분류·손상·접근제한·중복 개수' },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/export?format=json|html|csv', auth: 'Viewer+', desc: '북마크 내보내기' },
-    { method: 'POST', path: '/api/v1/workspaces/{wsID}/import', auth: 'Editor+', desc: '가져오기 (JSON/HTML/Raindrop CSV/Linkwarden/Karakeep)' },
-    { method: 'GET', path: '/api/v1/public/collections/{slug}', auth: '불필요', desc: '공개 링크 컬렉션 조회' },
+    { method: 'GET', path: '/api/v1/health', auth: t('apiDocs.authPublic'), desc: t('apiDocs.ep.health') },
+    { method: 'GET', path: '/api/v1/auth/me', auth: t('apiDocs.authRequired'), desc: t('apiDocs.ep.me') },
+    { method: 'GET', path: '/api/v1/workspaces', auth: t('apiDocs.authRequired'), desc: t('apiDocs.ep.wsList') },
+    { method: 'POST', path: '/api/v1/workspaces', auth: t('apiDocs.authRequired'), desc: t('apiDocs.ep.wsCreate') },
+    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}', auth: t('apiDocs.authOwner'), desc: t('apiDocs.ep.wsRename') },
+    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}', auth: t('apiDocs.authOwner'), desc: t('apiDocs.ep.wsDelete') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/collections', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.colList') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/collections', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.colCreate') },
+    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/collections/{colID}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.colUpdate') },
+    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/collections/{colID}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.colDelete') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.bmList') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.bmCreate') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.bmGet') },
+    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.bmUpdate') },
+    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.bmDelete') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/bulk', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.bmBulk') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/archive', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.archiveGet') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/archive', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.archiveCreate') },
+    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/archive', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.archiveDelete') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/export/markdown', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.exportMd') },
+    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/archives', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.clearArchives') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/usage', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.usage') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/check-link', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.checkOne') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/bookmarks/{bmID}/link-status', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.linkStatus') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/links/check', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.checkAll') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/links/duplicates', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.duplicates') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/filters', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.filterList') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/filters', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.filterCreate') },
+    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/filters/{filterID}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.filterUpdate') },
+    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/filters/{filterID}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.filterDelete') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/tags', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.tagList') },
+    { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/tags/{tagName}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.tagRename') },
+    { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/tags/{tagName}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.tagDelete') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/stats', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.stats') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/export?format=json|html|csv', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.export') },
+    { method: 'POST', path: '/api/v1/workspaces/{wsID}/import', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.import') },
+    { method: 'GET', path: '/api/v1/public/collections/{slug}', auth: t('apiDocs.authPublic'), desc: t('apiDocs.ep.publicCol') },
   ];
 
   return (
@@ -95,47 +106,43 @@ export function ApiDocsPage({ activeWorkspaceId, onBack }: ApiDocsPageProps) {
           className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          <span>설정으로 돌아가기</span>
+          <span>{t('common.backToSettings')}</span>
         </button>
-        <h1 className="text-xl font-bold text-slate-900">REST API 활용 매뉴얼</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          브라우저 확장, n8n/단축어 자동화, 백업 스크립트에서 아래 REST API를 바로 호출할 수
-          있습니다.
-        </p>
+        <h1 className="text-xl font-bold text-slate-900">{t('apiDocs.title')}</h1>
+        <p className="mt-1 text-sm text-slate-600">{t('apiDocs.subtitle')}</p>
       </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-900">인증 방식</h2>
+      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
+        <h2 className="text-sm font-semibold text-slate-900">{t('apiDocs.authTitle')}</h2>
         <p className="text-xs text-slate-600">
-          <strong>설정 → API 키</strong> 탭에서 <code>lkt_...</code> 토큰을 발급한 뒤, 모든 요청
-          헤더에 아래와 같이 Bearer 토큰을 포함하세요. 현재 선택된 소속 ID는{' '}
-          <code className="rounded bg-slate-100 px-1.5 py-0.5">{activeWorkspaceId}</code> 입니다.
+          {t('apiDocs.authDesc')}{' '}
+          <code className="rounded bg-slate-100 px-1.5 py-0.5">{activeWorkspaceId}</code>
         </p>
         <pre className="overflow-x-auto rounded-xl bg-slate-900 p-3 text-xs text-slate-100">
           Authorization: Bearer lkt_YOUR_API_KEY
         </pre>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-900">빠른 사용 예시 (curl)</h2>
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
+        <h2 className="text-sm font-semibold text-slate-900">{t('apiDocs.examplesTitle')}</h2>
         {examples.map((ex) => (
           <div key={ex.id} className="space-y-1.5">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-semibold text-slate-800">{ex.title}</div>
               <button
                 type="button"
                 onClick={() => void handleCopy(ex.id, ex.cmd)}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
               >
                 {copiedKey === ex.id ? (
                   <>
                     <Check className="h-3 w-3 text-emerald-600" />
-                    <span>복사됨</span>
+                    <span>{t('common.copied')}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="h-3 w-3" />
-                    <span>복사</span>
+                    <span>{t('common.copy')}</span>
                   </>
                 )}
               </button>
@@ -149,23 +156,25 @@ export function ApiDocsPage({ activeWorkspaceId, onBack }: ApiDocsPageProps) {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">전체 엔드포인트 목록</h2>
+        <h2 className="mb-3 text-sm font-semibold text-slate-900">{t('apiDocs.endpointsTitle')}</h2>
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-3 py-2 font-semibold">Method</th>
-                <th className="px-3 py-2 font-semibold">Endpoint</th>
-                <th className="px-3 py-2 font-semibold">권한</th>
-                <th className="px-3 py-2 font-semibold">설명</th>
+                <th className="whitespace-nowrap px-3 py-2 font-semibold">{t('apiDocs.colMethod')}</th>
+                <th className="whitespace-nowrap px-3 py-2 font-semibold">{t('apiDocs.colEndpoint')}</th>
+                <th className="whitespace-nowrap px-3 py-2 font-semibold">{t('apiDocs.colAuth')}</th>
+                <th className="px-3 py-2 font-semibold">{t('apiDocs.colDesc')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {endpoints.map((ep) => (
                 <tr key={ep.method + ep.path} className="hover:bg-slate-50">
-                  <td className="px-3 py-2 font-mono font-semibold text-sky-700">{ep.method}</td>
-                  <td className="px-3 py-2 font-mono text-slate-800">{ep.path}</td>
-                  <td className="px-3 py-2 text-slate-500">{ep.auth}</td>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono font-semibold text-sky-700">
+                    {ep.method}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-slate-800">{ep.path}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-slate-500">{ep.auth}</td>
                   <td className="px-3 py-2 text-slate-600">{ep.desc}</td>
                 </tr>
               ))}

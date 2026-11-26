@@ -2,13 +2,16 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Bookmark, ShieldCheck, Ticket } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
+import { useI18n } from '../i18n';
 import type { AuthConfig, User, Workspace } from '../types/bookmark';
+import { LanguageSelect } from './LanguageSelect';
 
 interface AuthScreenProps {
   onSuccess: (user: User, workspaces: Workspace[]) => void;
 }
 
 export function AuthScreen({ onSuccess }: AuthScreenProps) {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite') ?? '';
 
@@ -74,7 +77,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         onSuccess(res.user, res.workspaces);
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '요청 처리에 실패했습니다.');
+      setError(err instanceof ApiError ? err.message : t('common.requestFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -83,14 +86,19 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-600 text-white">
-            <Bookmark className="h-5 w-5" />
+        <div className="mb-6 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white">
+              <Bookmark className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-slate-900">
+                {t('common.appName')}
+              </h1>
+              <p className="text-xs text-slate-500">{t('common.tagline')}</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-slate-900">linktive</h1>
-            <p className="text-xs text-slate-500">가볍고 빠른 북마크 관리</p>
-          </div>
+          <LanguageSelect compact />
         </div>
 
         {inviteToken && authConfig && (
@@ -103,16 +111,14 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           >
             <Ticket className="h-4 w-4 shrink-0" />
             <span>
-              {authConfig.invite_valid
-                ? '유효한 초대 링크로 회원가입을 진행합니다.'
-                : '만료되었거나 이미 사용된 초대 링크입니다.'}
+              {authConfig.invite_valid ? t('auth.inviteValid') : t('auth.inviteInvalid')}
             </span>
           </div>
         )}
 
         {authConfig && !authConfig.has_users && (
           <div className="mb-4 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">
-            첫 번째로 가입하는 계정은 <strong>시스템 관리자</strong>로 자동 등록됩니다.
+            {t('auth.firstUserAdmin')}
           </div>
         )}
 
@@ -130,7 +136,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                 mode === 'login' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
               }`}
             >
-              로그인
+              {t('auth.login')}
             </button>
             <button
               type="button"
@@ -143,7 +149,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                 mode === 'register' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
               }`}
             >
-              회원가입
+              {t('auth.register')}
             </button>
           </div>
         )}
@@ -151,20 +157,24 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         <form onSubmit={handleSubmit} className="space-y-3">
           {mode === 'register' && canRegister && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">닉네임</label>
+              <label className="mb-1 block text-xs font-medium text-slate-700">
+                {t('auth.name')}
+              </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="홍길동"
+                placeholder={t('auth.namePlaceholder')}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
               />
             </div>
           )}
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">이메일</label>
+            <label className="mb-1 block text-xs font-medium text-slate-700">
+              {t('auth.email')}
+            </label>
             <input
               type="email"
               required
@@ -178,7 +188,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
 
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-700">
-              비밀번호 (6자 이상)
+              {t('auth.passwordMin')}
             </label>
             <input
               type="password"
@@ -196,7 +206,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
             <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
               <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-sky-900">
                 <ShieldCheck className="h-4 w-4 text-sky-600" />
-                <span>2단계 인증(2FA) 코드 6자리</span>
+                <span>{t('auth.twoFactorLabel')}</span>
               </label>
               <input
                 type="text"
@@ -220,12 +230,12 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
             className="w-full rounded-lg bg-sky-600 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
           >
             {submitting
-              ? '처리 중...'
+              ? t('common.processing')
               : mode === 'login'
                 ? requires2FA
-                  ? '인증 후 로그인'
-                  : '로그인'
-                : '계정 만들기'}
+                  ? t('auth.verifyAndLogin')
+                  : t('auth.login')
+                : t('auth.createAccount')}
           </button>
         </form>
       </div>

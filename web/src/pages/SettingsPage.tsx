@@ -9,10 +9,13 @@ import {
   Database,
   Download,
   KeyRound,
+  Layers,
   LogOut,
   Pencil,
   Plus,
   ShieldCheck,
+  SlidersHorizontal,
+  Star,
   Trash2,
   Upload,
   User as UserIcon,
@@ -21,6 +24,8 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { LanguageSelect } from '../components/LanguageSelect';
+import { useI18n, type LocaleCode } from '../i18n';
 import type {
   APIKeyItem,
   ArchiveShareScope,
@@ -70,9 +75,10 @@ export function SettingsPage({
   onDataImported,
   onLogout,
 }: SettingsPageProps) {
-  const [tab, setTab] = useState<'general' | 'usage' | 'account' | 'workspaces' | 'transfer' | 'apikeys'>(
-    'general',
-  );
+  const { setLocale, t } = useI18n();
+  const [tab, setTab] = useState<'general' | 'workspaces' | 'account' | 'transfer'>('general');
+  const [language, setLanguage] = useState<LocaleCode>(settings.language);
+  const [defaultWorkspaceId, setDefaultWorkspaceId] = useState<string>(settings.default_workspace_id);
   const [clickAction, setClickAction] = useState<ClickAction>(settings.click_action);
   const [includeSubcollections, setIncludeSubcollections] = useState<boolean>(
     settings.include_subcollections,
@@ -126,6 +132,8 @@ export function SettingsPage({
   const [error, setError] = useState('');
 
   useEffect(() => {
+    setLanguage(settings.language);
+    setDefaultWorkspaceId(settings.default_workspace_id);
     setClickAction(settings.click_action);
     setIncludeSubcollections(settings.include_subcollections);
     setClipOnSave(settings.clip_on_save);
@@ -133,6 +141,8 @@ export function SettingsPage({
     setSearchArchiveContent(settings.search_archive_content);
     setArchiveShareScope(settings.archive_share_scope);
   }, [
+    settings.language,
+    settings.default_workspace_id,
     settings.click_action,
     settings.include_subcollections,
     settings.clip_on_save,
@@ -157,38 +167,75 @@ export function SettingsPage({
         .listMembers(activeWorkspace.id)
         .then((res) => setMembers(res.items))
         .catch(() => setMembers([]));
-    } else if (tab === 'apikeys') {
-      void api
-        .listAPIKeys()
-        .then((res) => setApiKeys(res.items))
-        .catch(() => setApiKeys([]));
-    } else if (tab === 'usage') {
       setLoadingUsage(true);
       void api
         .getWorkspaceUsage(activeWorkspace.id)
         .then((res) => setWorkspaceUsage(res))
         .catch(() => setWorkspaceUsage(null))
         .finally(() => setLoadingUsage(false));
+    } else if (tab === 'account') {
+      void api
+        .listAPIKeys()
+        .then((res) => setApiKeys(res.items))
+        .catch(() => setApiKeys([]));
     }
   }, [tab, activeWorkspace.id]);
+
+  const effectiveDefaultWorkspaceId =
+    defaultWorkspaceId && workspaces.some((w) => w.id === defaultWorkspaceId)
+      ? defaultWorkspaceId
+      : (workspaces[0]?.id ?? '');
+
+  const buildMergedSettings = (overrides?: Partial<UserSettings>): UserSettings => ({
+    ...settings,
+    language,
+    default_workspace_id: defaultWorkspaceId,
+    click_action: clickAction,
+    include_subcollections: includeSubcollections,
+    clip_on_save: clipOnSave,
+    clip_format: clipFormat,
+    search_archive_content: searchArchiveContent,
+    archive_share_scope: archiveShareScope,
+    ...overrides,
+  });
+
+  const handleLanguageChange = async (next: LocaleCode) => {
+    setLanguage(next);
+    setLocale(next);
+    setError('');
+    setMessage('');
+    try {
+      await onUpdateSettings(buildMergedSettings({ language: next }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
+    }
+  };
+
+  const handleDefaultWorkspaceChange = async (wsId: string) => {
+    setDefaultWorkspaceId(wsId);
+    setError('');
+    setMessage('');
+    try {
+      await onUpdateSettings(buildMergedSettings({ default_workspace_id: wsId }));
+      const target = workspaces.find((w) => w.id === wsId);
+      if (target) {
+        setMessage(t('settings.defaultWorkspaceSaved', { name: target.name }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
+    }
+  };
 
   const handleSaveGeneral = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setMessage('');
     try {
-      await onUpdateSettings({
-        ...settings,
-        click_action: clickAction,
-        include_subcollections: includeSubcollections,
-        clip_on_save: clipOnSave,
-        clip_format: clipFormat,
-        search_archive_content: searchArchiveContent,
-        archive_share_scope: archiveShareScope,
-      });
-      setMessage('설정이 저장되었습니다.');
+      setLocale(language);
+      await onUpdateSettings(buildMergedSettings());
+      setMessage(t('settings.savedPreferences'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '설정 저장 실패');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     }
   };
 
@@ -202,9 +249,9 @@ export function SettingsPage({
         email: profileEmail.trim(),
       });
       onUserUpdated(res.user);
-      setMessage('사용자 정보를 수정했습니다.');
+      setMessage(t('settings.profileUpdated'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '사용자 정보 수정 실패');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     }
   };
 
@@ -219,9 +266,9 @@ export function SettingsPage({
       });
       setCurrentPassword('');
       setNewPassword('');
-      setMessage('비밀번호를 변경했습니다.');
+      setMessage(t('settings.passwordUpdated'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '비밀번호 변경 실패');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     }
   };
 
@@ -234,7 +281,7 @@ export function SettingsPage({
       const qrUrl = await QRCode.toDataURL(res.otpauth_url, { width: 180, margin: 1 });
       setTotpQrDataUrl(qrUrl);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '2FA 설정 준비 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -248,9 +295,9 @@ export function SettingsPage({
       setTotpSecret('');
       setTotpQrDataUrl('');
       setTotpEnableCode('');
-      setMessage('2단계 인증(2FA)이 활성화되었습니다.');
+      setMessage(t('settings.twoFactorEnabledMsg'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '2FA 활성화 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -263,9 +310,9 @@ export function SettingsPage({
       onUserUpdated(res.user);
       setDisablePassword('');
       setDisableCode('');
-      setMessage('2단계 인증(2FA)이 해제되었습니다.');
+      setMessage(t('settings.twoFactorDisabledMsg'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '2FA 해제 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -278,9 +325,9 @@ export function SettingsPage({
       const ws = await api.createWorkspace(newWsName.trim());
       onWorkspaceCreated(ws);
       setNewWsName('');
-      setMessage(`공유 소속 "${ws.name}"이 생성되었습니다.`);
+      setMessage(t('settings.wsCreatedMsg', { name: ws.name }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '소속 생성 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -293,9 +340,9 @@ export function SettingsPage({
       const updated = await api.updateWorkspace(wsId, trimmed);
       onWorkspaceUpdated(updated);
       setEditingWsId(null);
-      setMessage('소속 이름을 수정했습니다.');
+      setMessage(t('settings.wsRenamedMsg'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '소속 이름 수정 실패');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     }
   };
 
@@ -308,9 +355,9 @@ export function SettingsPage({
       const m = await api.addMember(activeWorkspace.id, inviteEmail.trim(), inviteRole);
       setMembers((prev) => [...prev.filter((x) => x.user_id !== m.user_id), m]);
       setInviteEmail('');
-      setMessage(`${m.email} 님을 추가했습니다.`);
+      setMessage(t('settings.memberAddedMsg', { email: m.email }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '멤버 추가 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -320,7 +367,7 @@ export function SettingsPage({
       await api.removeMember(activeWorkspace.id, userId);
       setMembers((prev) => prev.filter((m) => m.user_id !== userId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '멤버 제거 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -334,7 +381,7 @@ export function SettingsPage({
       setCreatedToken(res.token);
       setNewKeyName('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'API 키 생성 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -343,14 +390,14 @@ export function SettingsPage({
       await api.deleteAPIKey(keyId);
       setApiKeys((prev) => prev.filter((k) => k.id !== keyId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'API 키 삭제 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
   const handleImportSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!importFile) {
-      setError('가져올 파일을 선택해 주세요.');
+      setError(t('settings.importSelectFile'));
       return;
     }
     setError('');
@@ -366,10 +413,16 @@ export function SettingsPage({
       setImportFile(null);
       await onDataImported();
       setMessage(
-        `[${res.format}] 가져오기 완료 — 북마크 ${res.imported}개 추가, ${res.skipped}개 중복 건너뜀, 컬렉션 ${res.created_collections}개 생성 (실패 ${res.failed}개)`,
+        t('settings.importDone', {
+          format: res.format,
+          imported: res.imported,
+          skipped: res.skipped,
+          collections: res.created_collections,
+          failed: res.failed,
+        }),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : '가져오기에 실패했습니다.');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     } finally {
       setImporting(false);
     }
@@ -385,27 +438,28 @@ export function SettingsPage({
             className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span>북마크로 돌아가기</span>
+            <span>{t('common.backToBookmarks')}</span>
           </button>
-          <h1 className="text-xl font-bold text-slate-900">설정 및 계정</h1>
+          <h1 className="text-xl font-bold text-slate-900">{t('settings.title')}</h1>
           <p className="mt-0.5 text-xs text-slate-500">
             {user.name} ({user.email})
             {user.is_admin && (
               <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-700">
-                관리자
+                {t('admin.roleAdmin')}
               </span>
             )}
           </p>
+          <p className="mt-1 text-xs text-slate-500">{t('settings.subtitle')}</p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => void onLogout()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
           >
             <LogOut className="h-3.5 w-3.5" />
-            <span>로그아웃</span>
+            <span>{t('nav.logout')}</span>
           </button>
         </div>
       </div>
@@ -415,339 +469,571 @@ export function SettingsPage({
           <button
             type="button"
             onClick={() => setTab('general')}
-            className={`border-b-2 pb-2.5 font-medium ${
-              tab === 'general' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
-            }`}
-          >
-            동작 설정
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('usage')}
             className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
-              tab === 'usage' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
+              tab === 'general' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <BarChart3 className="h-4 w-4" />
-            <span>통계·사용량</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('account')}
-            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
-              tab === 'account' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
-            }`}
-          >
-            <UserIcon className="h-4 w-4" />
-            <span>내 정보 · 보안</span>
+            <SlidersHorizontal className="h-4 w-4" />
+            <span>{t('settings.tabGeneral')}</span>
           </button>
           <button
             type="button"
             onClick={() => setTab('workspaces')}
             className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
-              tab === 'workspaces' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
+              tab === 'workspaces' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Users className="h-4 w-4" />
-            <span>소속·공유</span>
+            <Layers className="h-4 w-4" />
+            <span>{t('settings.tabWorkspacesUsage')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('account')}
+            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
+              tab === 'account' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <UserIcon className="h-4 w-4" />
+            <span>{t('settings.tabAccountApi')}</span>
           </button>
           <button
             type="button"
             onClick={() => setTab('transfer')}
             className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
-              tab === 'transfer' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
+              tab === 'transfer' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Database className="h-4 w-4" />
-            <span>가져오기·내보내기</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('apikeys')}
-            className={`inline-flex items-center gap-1.5 border-b-2 pb-2.5 font-medium ${
-              tab === 'apikeys' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500'
-            }`}
-          >
-            <KeyRound className="h-4 w-4" />
-            <span>API 키</span>
+            <span>{t('settings.tabTransfer')}</span>
           </button>
         </div>
 
         {tab === 'general' && (
-          <form onSubmit={handleSaveGeneral} className="space-y-4">
-            <div>
-              <label className="mb-2 block text-xs font-semibold text-slate-700">
-                북마크 클릭 시 기본 동작
-              </label>
-              <div className="space-y-2 text-sm">
-                {(
-                  [
-                    ['new_tab', '새 창(새 탭)으로 원본 URL 열기'],
-                    ['current_tab', '현재 창에서 원본 URL 열기'],
-                    ['detail_panel', '북마크 세부정보 패널 열기'],
-                  ] as const
-                ).map(([value, label]) => (
-                  <label
-                    key={value}
-                    className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50"
-                  >
-                    <input
-                      type="radio"
-                      name="click_action"
-                      checked={clickAction === value}
-                      onChange={() => setClickAction(value)}
-                    />
-                    <span>{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-semibold text-slate-700">
-                컬렉션 탐색 동작
-              </label>
-              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-3 text-sm hover:bg-slate-50">
-                <input
-                  type="checkbox"
-                  checked={includeSubcollections}
-                  onChange={(e) => setIncludeSubcollections(e.target.checked)}
-                  className="mt-0.5"
-                />
-                <div>
-                  <div className="font-medium text-slate-800">
-                    상위 폴더 선택 시 하위 폴더의 북마크도 함께 표시
+          <form onSubmit={handleSaveGeneral} className="space-y-5">
+            <section className="space-y-3 rounded-xl border border-slate-200 p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {t('settings.sectionInterface')}
+              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-slate-800">
+                    {t('settings.languageTitle')}
                   </div>
-                  <div className="text-xs text-slate-500">
-                    켜두면 상위 컬렉션을 클릭했을 때 하위 컬렉션에 담긴 북마크까지 모아서 함께
-                    보여줍니다.
-                  </div>
+                  <div className="mt-0.5 text-xs text-slate-500">{t('settings.languageDesc')}</div>
                 </div>
-              </label>
-            </div>
+                <LanguageSelect value={language} onChange={(next) => void handleLanguageChange(next)} />
+              </div>
 
-            <div>
-              <label className="mb-2 block text-xs font-semibold text-slate-700">
-                웹 클리핑 · 아카이빙 방식
-              </label>
-              <div className="space-y-2 text-sm">
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50">
-                  <input
-                    type="radio"
-                    name="clip_on_save"
-                    checked={clipOnSave === 'manual'}
-                    onChange={() => setClipOnSave('manual')}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <div className="font-medium text-slate-800">수동으로만 클리핑 (권장 · 가볍게 사용)</div>
-                    <div className="text-xs text-slate-500">
-                      평소에는 가벼운 북마크만 저장하고, 필요한 페이지에만 세부정보 패널에서 본문 저장을 실행합니다.
+              {workspaces.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-800">
+                      {t('settings.defaultWorkspaceTitle')}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      {t('settings.defaultWorkspaceDesc')}
                     </div>
                   </div>
+                  <select
+                    value={effectiveDefaultWorkspaceId}
+                    onChange={(e) => void handleDefaultWorkspaceChange(e.target.value)}
+                    aria-label={t('settings.defaultWorkspaceTitle')}
+                    className="max-w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none focus:border-sky-500"
+                  >
+                    {workspaces.map((ws) => (
+                      <option key={ws.id} value={ws.id}>
+                        {ws.name} ({ws.type === 'personal' ? t('common.personal') : t('common.shared')})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </section>
+
+            <section className="space-y-4 rounded-xl border border-slate-200 p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {t('settings.sectionBehavior')}
+              </h2>
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-slate-700">
+                  {t('settings.clickActionTitle')}
                 </label>
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50">
+                <div className="space-y-2 text-sm">
+                  {(
+                    [
+                      ['new_tab', t('settings.clickNewTab')],
+                      ['current_tab', t('settings.clickCurrentTab')],
+                      ['detail_panel', t('settings.clickDetailPanel')],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50"
+                    >
+                      <input
+                        type="radio"
+                        name="click_action"
+                        checked={clickAction === value}
+                        onChange={() => setClickAction(value)}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-slate-700">
+                  {t('settings.collectionNavTitle')}
+                </label>
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-3 text-sm hover:bg-slate-50">
                   <input
-                    type="radio"
-                    name="clip_on_save"
-                    checked={clipOnSave === 'auto'}
-                    onChange={() => setClipOnSave('auto')}
+                    type="checkbox"
+                    checked={includeSubcollections}
+                    onChange={(e) => setIncludeSubcollections(e.target.checked)}
                     className="mt-0.5"
                   />
                   <div>
-                    <div className="font-medium text-slate-800">사이트 추가 시 자동 클리핑</div>
-                    <div className="text-xs text-slate-500">
-                      북마크를 저장할 때마다 백그라운드에서 읽기 전용 본문과 이미지를 자동으로 아카이빙합니다.
-                    </div>
+                    <div className="font-medium text-slate-800">{t('settings.includeSubTitle')}</div>
+                    <div className="text-xs text-slate-500">{t('settings.includeSubDesc')}</div>
                   </div>
                 </label>
               </div>
-            </div>
+            </section>
 
-            <div>
-              <label className="mb-2 block text-xs font-semibold text-slate-700">
-                기본 클리핑 저장 형식
-              </label>
-              <div className="space-y-2 text-sm">
-                {(
-                  [
-                    [
-                      'readable',
-                      '리더 뷰 (본문·이미지 정리)',
-                      '불필요한 메뉴·광고·레이아웃을 제거하고 본문 글과 이미지만 깔끔하게 저장합니다.',
-                    ],
-                    [
-                      'html',
-                      '원본 HTML (사이트 레이아웃 유지)',
-                      '원본 웹페이지의 디자인·CSS 스타일·전체 구조를 안전하게 정제해 그대로 보존합니다.',
-                    ],
-                    [
-                      'both',
-                      '둘 다 저장 (리더 뷰 + 원본 HTML)',
-                      '상황에 따라 리더 뷰와 원본 레이아웃 화면을 전환해 볼 수 있습니다. (저장 용량은 소폭 늘어납니다)',
-                    ],
-                  ] as const
-                ).map(([value, titleText, descText]) => (
-                  <label
-                    key={value}
-                    className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50"
-                  >
+            <section className="space-y-4 rounded-xl border border-slate-200 p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {t('settings.sectionClipping')}
+              </h2>
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-slate-700">
+                  {t('settings.clipModeTitle')}
+                </label>
+                <div className="space-y-2 text-sm">
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50">
                     <input
                       type="radio"
-                      name="clip_format"
-                      checked={clipFormat === value}
-                      onChange={() => setClipFormat(value)}
+                      name="clip_on_save"
+                      checked={clipOnSave === 'manual'}
+                      onChange={() => setClipOnSave('manual')}
                       className="mt-0.5"
                     />
                     <div>
-                      <div className="font-medium text-slate-800">{titleText}</div>
-                      <div className="text-xs text-slate-500">{descText}</div>
+                      <div className="font-medium text-slate-800">{t('settings.clipManualTitle')}</div>
+                      <div className="text-xs text-slate-500">{t('settings.clipManualDesc')}</div>
                     </div>
                   </label>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-2 block text-xs font-semibold text-slate-700">
-                아카이빙 본문 검색 · 열람 범위
-              </label>
-              <div className="space-y-2 text-sm">
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-3 hover:bg-slate-50">
-                  <input
-                    type="checkbox"
-                    checked={searchArchiveContent}
-                    onChange={(e) => setSearchArchiveContent(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <div className="font-medium text-slate-800">통합 검색에 아카이빙 본문 포함</div>
-                    <div className="text-xs text-slate-500">
-                      끄면 제목·URL·설명·메모·태그만 검색하고, 켜면 저장된 본문 텍스트까지 함께 검색합니다.
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50">
+                    <input
+                      type="radio"
+                      name="clip_on_save"
+                      checked={clipOnSave === 'auto'}
+                      onChange={() => setClipOnSave('auto')}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-800">{t('settings.clipAutoTitle')}</div>
+                      <div className="text-xs text-slate-500">{t('settings.clipAutoDesc')}</div>
                     </div>
-                  </div>
-                </label>
+                  </label>
+                </div>
+              </div>
 
-                <div className="rounded-lg border border-slate-200 p-3.5">
-                  <div className="mb-2 text-xs font-semibold text-slate-700">
-                    공유 소속·공유 컬렉션 내 아카이빙 본문 열람 허용
-                  </div>
-                  <div className="space-y-2">
-                    <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-slate-700">
+                  {t('settings.clipFormatTitle')}
+                </label>
+                <div className="space-y-2 text-sm">
+                  {(
+                    [
+                      [
+                        'readable',
+                        t('settings.clipFormatReadableTitle'),
+                        t('settings.clipFormatReadableDesc'),
+                      ],
+                      [
+                        'html',
+                        t('settings.clipFormatHtmlTitle'),
+                        t('settings.clipFormatHtmlDesc'),
+                      ],
+                      [
+                        'both',
+                        t('settings.clipFormatBothTitle'),
+                        t('settings.clipFormatBothDesc'),
+                      ],
+                    ] as const
+                  ).map(([value, titleText, descText]) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-2.5 hover:bg-slate-50"
+                    >
                       <input
                         type="radio"
-                        name="archive_share_scope"
-                        checked={archiveShareScope === 'owner_only'}
-                        onChange={() => setArchiveShareScope('owner_only')}
+                        name="clip_format"
+                        checked={clipFormat === value}
+                        onChange={() => setClipFormat(value)}
                         className="mt-0.5"
                       />
                       <div>
-                        <div className="font-medium text-slate-800">본인만 열람 (기본값)</div>
-                        <div className="text-xs text-slate-500">
-                          내가 아카이빙한 본문은 공유 공간·공유 컬렉션 멤버에게도 노출되지 않습니다.
-                        </div>
+                        <div className="font-medium text-slate-800">{titleText}</div>
+                        <div className="text-xs text-slate-500">{descText}</div>
                       </div>
                     </label>
-                    <label className="flex cursor-pointer items-start gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="archive_share_scope"
-                        checked={archiveShareScope === 'shared_members'}
-                        onChange={() => setArchiveShareScope('shared_members')}
-                        className="mt-0.5"
-                      />
-                      <div>
-                        <div className="font-medium text-slate-800">공유 멤버에게도 본문 열람 허용</div>
-                        <div className="text-xs text-amber-700">
-                          주의: 외부 공개 링크(/share/...)에는 항상 비공개되며, 공유 멤버에게 아카이빙 본문을 공개할 때의 저작권 책임은 설정한 사용자 본인에게 있습니다.
-                        </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-slate-700">
+                  {t('settings.archiveSearchTitle')}
+                </label>
+                <div className="space-y-2 text-sm">
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3.5 py-3 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={searchArchiveContent}
+                      onChange={(e) => setSearchArchiveContent(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-medium text-slate-800">
+                        {t('settings.searchArchiveTitle')}
                       </div>
-                    </label>
+                      <div className="text-xs text-slate-500">{t('settings.searchArchiveDesc')}</div>
+                    </div>
+                  </label>
+
+                  <div className="rounded-lg border border-slate-200 p-3.5">
+                    <div className="mb-2 text-xs font-semibold text-slate-700">
+                      {t('settings.shareScopeTitle')}
+                    </div>
+                    <div className="space-y-2">
+                      <label className="flex cursor-pointer items-start gap-2 text-sm">
+                        <input
+                          type="radio"
+                          name="archive_share_scope"
+                          checked={archiveShareScope === 'owner_only'}
+                          onChange={() => setArchiveShareScope('owner_only')}
+                          className="mt-0.5"
+                        />
+                        <div>
+                          <div className="font-medium text-slate-800">
+                            {t('settings.shareOwnerOnlyTitle')}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {t('settings.shareOwnerOnlyDesc')}
+                          </div>
+                        </div>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 text-sm">
+                        <input
+                          type="radio"
+                          name="archive_share_scope"
+                          checked={archiveShareScope === 'shared_members'}
+                          onChange={() => setArchiveShareScope('shared_members')}
+                          className="mt-0.5"
+                        />
+                        <div>
+                          <div className="font-medium text-slate-800">
+                            {t('settings.shareMembersTitle')}
+                          </div>
+                          <div className="text-xs text-amber-700">
+                            {t('settings.shareMembersWarn')}
+                          </div>
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
             <div className="flex justify-end">
               <button
                 type="submit"
                 className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
               >
-                설정 저장
+                {t('settings.savePreferences')}
               </button>
             </div>
           </form>
         )}
 
-        {tab === 'usage' && (
+        {tab === 'workspaces' && (
           <div className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900">
-                  "{activeWorkspace.name}" 통계 및 저장 공간 사용량
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  현재 선택된 소속의 북마크, 태그, 아카이빙 본문과 로컬 이미지 용량을 확인합니다.
-                </p>
+            <form onSubmit={handleCreateWorkspace} className="flex flex-wrap gap-2 sm:flex-nowrap">
+              <input
+                type="text"
+                value={newWsName}
+                onChange={(e) => setNewWsName(e.target.value)}
+                placeholder={t('settings.newWsPlaceholder')}
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+              />
+              <button
+                type="submit"
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-sky-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-sky-700"
+              >
+                <Plus className="h-4 w-4" />
+                <span>{t('settings.createWsBtn')}</span>
+              </button>
+            </form>
+
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                <Users className="h-3.5 w-3.5 text-slate-500" />
+                <span>{t('settings.wsListTitle')}</span>
               </div>
-              {workspaceUsage && workspaceUsage.archived_count > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setConfirmClearArchives(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>아카이빙 데이터 모두 비우기</span>
-                </button>
+              <div className="space-y-1.5 text-sm">
+                {workspaces.map((ws) => {
+                  const isEditing = editingWsId === ws.id;
+                  const isActive = ws.id === activeWorkspace.id;
+                  const isDefault = effectiveDefaultWorkspaceId === ws.id;
+                  return (
+                    <div
+                      key={ws.id}
+                      className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 sm:flex-nowrap ${
+                        isActive ? 'bg-sky-50 ring-1 ring-sky-200' : 'bg-slate-50'
+                      }`}
+                    >
+                      {isEditing ? (
+                        <div className="flex flex-1 items-center gap-2">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={editingWsName}
+                            onChange={(e) => setEditingWsName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void handleRenameWorkspace(ws.id);
+                              if (e.key === 'Escape') setEditingWsId(null);
+                            }}
+                            className="min-w-0 flex-1 rounded border border-sky-400 bg-white px-2.5 py-1 text-sm outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleRenameWorkspace(ws.id)}
+                            title={t('common.save')}
+                            aria-label={t('common.save')}
+                            className="rounded bg-sky-600 p-1 text-white"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingWsId(null)}
+                            title={t('common.cancel')}
+                            aria-label={t('common.cancel')}
+                            className="rounded p-1 text-slate-400 hover:bg-white"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onSelectWorkspace(ws.id)}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          >
+                            <span className="truncate font-medium text-slate-900">{ws.name}</span>
+                            <span className="shrink-0 whitespace-nowrap rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                              {ws.type === 'personal' ? t('common.personal') : t('common.shared')}
+                            </span>
+                            <span className="shrink-0 whitespace-nowrap rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                              {ws.role}
+                            </span>
+                            {isDefault && (
+                              <span className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200/70">
+                                <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
+                                <span>{t('settings.defaultWorkspaceBadge')}</span>
+                              </span>
+                            )}
+                          </button>
+
+                          <div className="flex shrink-0 items-center gap-1">
+                            {workspaces.length > 1 && !isDefault && (
+                              <button
+                                type="button"
+                                onClick={() => void handleDefaultWorkspaceChange(ws.id)}
+                                className="whitespace-nowrap rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:border-amber-300 hover:text-amber-700"
+                              >
+                                {t('settings.setDefaultWorkspace')}
+                              </button>
+                            )}
+                            {ws.role === 'owner' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingWsId(ws.id);
+                                    setEditingWsName(ws.name);
+                                  }}
+                                  title={t('settings.wsEditTitle')}
+                                  className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                {ws.type === 'shared' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteTargetWs(ws)}
+                                    title={t('settings.wsDeleteTitle')}
+                                    className="rounded p-1 text-slate-400 hover:bg-white hover:text-rose-600"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-2.5 text-xs font-semibold text-slate-700">
+                {t('settings.wsMembersTitle', { name: activeWorkspace.name })}
+              </div>
+              <div className="space-y-1.5 text-sm">
+                {members.map((m) => (
+                  <div
+                    key={m.user_id}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-medium">{m.name}</span>{' '}
+                      <span className="text-xs text-slate-500">({m.email})</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="rounded bg-white px-2 py-0.5 text-xs text-slate-600">
+                        {m.role}
+                      </span>
+                      {activeWorkspace.role === 'owner' && m.role !== 'owner' && (
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveMember(m.user_id)}
+                          title={t('settings.removeMember')}
+                          aria-label={t('settings.removeMember')}
+                          className="text-slate-400 hover:text-rose-600"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {activeWorkspace.role === 'owner' && activeWorkspace.type === 'shared' && (
+                <form onSubmit={handleInviteMember} className="mt-3 flex flex-wrap gap-2 sm:flex-nowrap">
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder={t('settings.invitePlaceholder')}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-sky-500"
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as MemberRole)}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                  >
+                    <option value="editor">{t('common.editor')}</option>
+                    <option value="viewer">{t('common.viewer')}</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="shrink-0 whitespace-nowrap rounded-lg bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
+                  >
+                    {t('settings.inviteBtn')}
+                  </button>
+                </form>
               )}
             </div>
 
-            {loadingUsage ? (
-              <p className="py-8 text-center text-xs text-slate-400">사용량을 집계하는 중...</p>
-            ) : workspaceUsage ? (
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="text-xs text-slate-500">북마크</div>
-                  <div className="mt-1 text-2xl font-bold text-slate-900">
-                    {workspaceUsage.bookmark_count.toLocaleString()}
-                  </div>
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    컬렉션 {workspaceUsage.collection_count}개 · 태그 {workspaceUsage.tag_count}개
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="text-xs text-slate-500">아카이빙 본문</div>
-                  <div className="mt-1 text-2xl font-bold text-sky-700">
-                    {workspaceUsage.archived_count.toLocaleString()}
-                  </div>
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    로컬 이미지 {workspaceUsage.archive_asset_count.toLocaleString()}개 저장됨
+            {/* Usage & Storage for active workspace */}
+            <div className="space-y-4 rounded-xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <BarChart3 className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900">
+                      {t('settings.usageTitle', { name: activeWorkspace.name })}
+                    </h2>
+                    <p className="mt-0.5 text-xs text-slate-500">{t('settings.usageDesc')}</p>
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="text-xs text-slate-500">아카이빙 사용 용량</div>
-                  <div className="mt-1 text-2xl font-bold text-slate-900">
-                    {formatBytes(workspaceUsage.archive_bytes)}
-                  </div>
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    본문 텍스트 + 로컬 이미지 합계
-                  </div>
-                </div>
+                {workspaceUsage && workspaceUsage.archived_count > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearArchives(true)}
+                    className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>{t('settings.clearArchivesBtn')}</span>
+                  </button>
+                )}
               </div>
-            ) : (
-              <p className="text-xs text-slate-400">사용량 정보를 불러오지 못했습니다.</p>
-            )}
+
+              {loadingUsage ? (
+                <p className="py-6 text-center text-xs text-slate-400">
+                  {t('settings.loadingUsage')}
+                </p>
+              ) : workspaceUsage ? (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="text-xs text-slate-500">{t('settings.usageBookmarks')}</div>
+                    <div className="mt-1 text-2xl font-bold text-slate-900">
+                      {workspaceUsage.bookmark_count.toLocaleString()}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      {t('settings.usageBookmarksSub', {
+                        collections: workspaceUsage.collection_count,
+                        tags: workspaceUsage.tag_count,
+                      })}
+                    </div>
+                  </div>
+                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="text-xs text-slate-500">{t('settings.usageArchives')}</div>
+                    <div className="mt-1 text-2xl font-bold text-sky-700">
+                      {workspaceUsage.archived_count.toLocaleString()}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      {t('settings.usageArchivesSub', {
+                        assets: workspaceUsage.archive_asset_count.toLocaleString(),
+                      })}
+                    </div>
+                  </div>
+                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="text-xs text-slate-500">{t('settings.usageStorage')}</div>
+                    <div className="mt-1 text-2xl font-bold text-slate-900">
+                      {formatBytes(workspaceUsage.archive_bytes)}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      {t('settings.usageStorageSub')}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">{t('settings.usageError')}</p>
+              )}
+            </div>
           </div>
         )}
 
         {tab === 'account' && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Profile */}
             <form onSubmit={handleSaveProfile} className="space-y-3 rounded-xl border border-slate-200 p-4">
-              <div className="text-sm font-semibold text-slate-800">기본 정보 수정</div>
+              <div className="text-sm font-semibold text-slate-800">{t('settings.profileTitle')}</div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">닉네임</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    {t('auth.name')}
+                  </label>
                   <input
                     type="text"
                     required
@@ -757,7 +1043,9 @@ export function SettingsPage({
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">이메일</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    {t('auth.email')}
+                  </label>
                   <input
                     type="email"
                     required
@@ -772,18 +1060,20 @@ export function SettingsPage({
                   type="submit"
                   className="rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
                 >
-                  정보 저장
+                  {t('settings.profileSave')}
                 </button>
               </div>
             </form>
 
             {/* Password */}
             <form onSubmit={handleChangePassword} className="space-y-3 rounded-xl border border-slate-200 p-4">
-              <div className="text-sm font-semibold text-slate-800">비밀번호 변경</div>
+              <div className="text-sm font-semibold text-slate-800">
+                {t('settings.passwordTitle')}
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-700">
-                    현재 비밀번호
+                    {t('settings.currentPassword')}
                   </label>
                   <input
                     type="password"
@@ -795,7 +1085,7 @@ export function SettingsPage({
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-700">
-                    새 비밀번호 (6자 이상)
+                    {t('settings.newPassword')}
                   </label>
                   <input
                     type="password"
@@ -812,25 +1102,23 @@ export function SettingsPage({
                   type="submit"
                   className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
                 >
-                  비밀번호 변경
+                  {t('settings.passwordTitle')}
                 </button>
               </div>
             </form>
 
             {/* 2FA TOTP */}
             <div className="space-y-3 rounded-xl border border-slate-200 p-4">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <ShieldCheck
-                    className={`h-4 w-4 ${user.totp_enabled ? 'text-emerald-600' : 'text-slate-400'}`}
+                    className={`h-4 w-4 shrink-0 ${user.totp_enabled ? 'text-emerald-600' : 'text-slate-400'}`}
                   />
                   <div>
                     <div className="text-sm font-semibold text-slate-800">
-                      2단계 인증 (TOTP 2FA)
+                      {t('settings.twoFactorTitle')}
                     </div>
-                    <div className="text-xs text-slate-500">
-                      1Password, Google Authenticator 등 OTP 앱으로 로그인을 보호합니다.
-                    </div>
+                    <div className="text-xs text-slate-500">{t('settings.twoFactorDesc')}</div>
                   </div>
                 </div>
                 <span
@@ -840,7 +1128,7 @@ export function SettingsPage({
                       : 'bg-slate-100 text-slate-500'
                   }`}
                 >
-                  {user.totp_enabled ? '사용 중' : '미사용'}
+                  {user.totp_enabled ? t('settings.twoFactorOn') : t('settings.twoFactorOff')}
                 </span>
               </div>
 
@@ -851,7 +1139,7 @@ export function SettingsPage({
                     onClick={() => void handleStart2FASetup()}
                     className="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
                   >
-                    2FA 설정 시작
+                    {t('settings.twoFactorStart')}
                   </button>
                 ) : (
                   <form onSubmit={handleEnable2FA} className="space-y-3 rounded-lg bg-slate-50 p-3.5">
@@ -863,22 +1151,22 @@ export function SettingsPage({
                           className="h-36 w-36 rounded-lg border border-slate-200 bg-white p-1"
                         />
                       )}
-                      <div className="space-y-2 text-xs text-slate-600">
-                        <p>인증 앱으로 QR 코드를 스캔하거나 아래 시크릿 키를 직접 입력하세요.</p>
-                        <div className="flex items-center gap-2 rounded bg-white px-2.5 py-1.5 font-mono text-slate-800">
-                          <span>{totpSecret}</span>
+                      <div className="min-w-0 flex-1 space-y-2 text-xs text-slate-600">
+                        <p>{t('settings.twoFactorQrHint')}</p>
+                        <div className="flex items-center justify-between gap-2 rounded bg-white px-2.5 py-1.5 font-mono text-slate-800">
+                          <span className="truncate">{totpSecret}</span>
                           <button
                             type="button"
                             onClick={async () => {
                               const ok = await copyToClipboard(totpSecret);
-                              if (ok) setMessage('2FA 시크릿 키를 복사했습니다.');
+                              if (ok) setMessage(t('settings.twoFactorSecretCopied'));
                             }}
-                            className="text-sky-600 hover:underline"
+                            className="shrink-0 text-sky-600 hover:underline"
                           >
-                            복사
+                            {t('common.copy')}
                           </button>
                         </div>
-                        <div className="flex items-center gap-2 pt-1">
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
                           <input
                             type="text"
                             inputMode="numeric"
@@ -886,14 +1174,14 @@ export function SettingsPage({
                             maxLength={6}
                             value={totpEnableCode}
                             onChange={(e) => setTotpEnableCode(e.target.value.replace(/\D/g, ''))}
-                            placeholder="앱의 6자리 코드 입력"
+                            placeholder={t('settings.twoFactorCodePlaceholder')}
                             className="w-40 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-sky-500"
                           />
                           <button
                             type="submit"
                             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
                           >
-                            확인 후 활성화
+                            {t('settings.twoFactorVerifyBtn')}
                           </button>
                         </div>
                       </div>
@@ -902,14 +1190,16 @@ export function SettingsPage({
                 )
               ) : (
                 <form onSubmit={handleDisable2FA} className="space-y-2 rounded-lg bg-rose-50/50 p-3">
-                  <div className="text-xs font-medium text-slate-700">2FA 해제 확인</div>
+                  <div className="text-xs font-medium text-slate-700">
+                    {t('settings.twoFactorDisableTitle')}
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <input
                       type="password"
                       required
                       value={disablePassword}
                       onChange={(e) => setDisablePassword(e.target.value)}
-                      placeholder="현재 비밀번호"
+                      placeholder={t('settings.currentPassword')}
                       className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-sky-500"
                     />
                     <input
@@ -919,194 +1209,107 @@ export function SettingsPage({
                       maxLength={6}
                       value={disableCode}
                       onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="OTP 6자리 코드"
-                      className="w-32 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-sky-500"
+                      placeholder={t('settings.twoFactorOtpPlaceholder')}
+                      className="w-36 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-sky-500"
                     />
                     <button
                       type="submit"
                       className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
                     >
-                      2FA 해제
+                      {t('settings.twoFactorDisableBtn')}
                     </button>
                   </div>
                 </form>
               )}
             </div>
-          </div>
-        )}
 
-        {tab === 'workspaces' && (
-          <div className="space-y-5">
-            <form onSubmit={handleCreateWorkspace} className="flex gap-2">
-              <input
-                type="text"
-                value={newWsName}
-                onChange={(e) => setNewWsName(e.target.value)}
-                placeholder="새 공유 소속 이름 (예: 우리 가족)"
-                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
-              />
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-sky-700"
-              >
-                <Plus className="h-4 w-4" />
-                <span>소속 만들기</span>
-              </button>
-            </form>
-
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="mb-2.5 text-xs font-semibold text-slate-600">내 소속 목록</div>
-              <div className="space-y-1.5 text-sm">
-                {workspaces.map((ws) => {
-                  const isEditing = editingWsId === ws.id;
-                  const isActive = ws.id === activeWorkspace.id;
-                  return (
-                    <div
-                      key={ws.id}
-                      className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 ${
-                        isActive ? 'bg-sky-50 ring-1 ring-sky-200' : 'bg-slate-50'
-                      }`}
-                    >
-                      {isEditing ? (
-                        <div className="flex flex-1 items-center gap-2">
-                          <input
-                            type="text"
-                            autoFocus
-                            value={editingWsName}
-                            onChange={(e) => setEditingWsName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') void handleRenameWorkspace(ws.id);
-                              if (e.key === 'Escape') setEditingWsId(null);
-                            }}
-                            className="flex-1 rounded border border-sky-400 bg-white px-2.5 py-1 text-sm outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void handleRenameWorkspace(ws.id)}
-                            title="저장"
-                            aria-label="저장"
-                            className="rounded bg-sky-600 p-1 text-white"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingWsId(null)}
-                            title="취소"
-                            aria-label="취소"
-                            className="rounded p-1 text-slate-400 hover:bg-white"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => onSelectWorkspace(ws.id)}
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          >
-                            <span className="truncate font-medium text-slate-900">{ws.name}</span>
-                            <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
-                              {ws.type === 'personal' ? '개인' : '공유'}
-                            </span>
-                            <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
-                              {ws.role}
-                            </span>
-                          </button>
-
-                          {ws.role === 'owner' && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingWsId(ws.id);
-                                  setEditingWsName(ws.name);
-                                }}
-                                title="소속 이름 수정"
-                                className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              {ws.type === 'shared' && (
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteTargetWs(ws)}
-                                  title="소속 삭제"
-                                  className="rounded p-1 text-slate-400 hover:bg-white hover:text-rose-600"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
+            {/* API Keys & Automation */}
+            <div className="space-y-4 rounded-xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800">
+                      {t('settings.sectionApiKeys')}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="mb-2.5 text-xs font-semibold text-slate-600">
-                선택된 소속 멤버: {activeWorkspace.name}
-              </div>
-              <div className="space-y-1.5 text-sm">
-                {members.map((m) => (
-                  <div
-                    key={m.user_id}
-                    className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"
-                  >
-                    <div>
-                      <span className="font-medium">{m.name}</span>{' '}
-                      <span className="text-xs text-slate-500">({m.email})</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-white px-2 py-0.5 text-xs text-slate-600">
-                        {m.role}
-                      </span>
-                      {activeWorkspace.role === 'owner' && m.role !== 'owner' && (
-                        <button
-                          type="button"
-                          onClick={() => void handleRemoveMember(m.user_id)}
-                          title="멤버 제거"
-                          aria-label="멤버 제거"
-                          className="text-slate-400 hover:text-rose-600"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
+                    <div className="text-xs text-slate-500">{t('settings.apiKeyDesc')}</div>
                   </div>
-                ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenApiDocs}
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-medium text-sky-600 hover:bg-sky-50"
+                >
+                  <span>{t('settings.apiDocsLink')}</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
               </div>
 
-              {activeWorkspace.role === 'owner' && activeWorkspace.type === 'shared' && (
-                <form onSubmit={handleInviteMember} className="mt-3 flex gap-2">
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="가입된 사용자 이메일 입력"
-                    className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-sky-500"
-                  />
-                  <select
-                    value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value as MemberRole)}
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
-                  >
-                    <option value="editor">편집자</option>
-                    <option value="viewer">열람자</option>
-                  </select>
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
-                  >
-                    초대
-                  </button>
-                </form>
+              <form onSubmit={handleCreateKey} className="flex flex-wrap gap-2 sm:flex-nowrap">
+                <input
+                  type="text"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder={t('settings.apiKeyNamePlaceholder')}
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                />
+                <button
+                  type="submit"
+                  className="shrink-0 whitespace-nowrap rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                >
+                  {t('settings.issueKey')}
+                </button>
+              </form>
+
+              {createdToken && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                  <div className="mb-1 font-semibold">{t('settings.issuedTokenTitle')}</div>
+                  <div className="flex items-center justify-between gap-2 rounded bg-white px-2.5 py-1.5 font-mono">
+                    <span className="truncate">{createdToken}</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await copyToClipboard(createdToken);
+                        if (ok) setMessage(t('settings.tokenCopied'));
+                        else setError(t('settings.copyFailed'));
+                      }}
+                      className="inline-flex shrink-0 items-center gap-1 text-sky-600"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {t('common.copy')}
+                    </button>
+                  </div>
+                </div>
               )}
+
+              <div className="space-y-1.5 text-sm">
+                {apiKeys.length === 0 ? (
+                  <p className="text-xs text-slate-400">{t('settings.noApiKeys')}</p>
+                ) : (
+                  apiKeys.map((k) => (
+                    <div
+                      key={k.id}
+                      className="flex items-center justify-between rounded-lg bg-slate-50 px-3.5 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{k.name}</div>
+                        <div className="text-xs text-slate-400">
+                          {t('settings.createdDate', { date: k.created_at.slice(0, 10) })}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteKey(k.id)}
+                        title={t('settings.deleteApiKey')}
+                        aria-label={t('settings.deleteApiKey')}
+                        className="rounded p-1 text-slate-400 hover:text-rose-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1115,11 +1318,9 @@ export function SettingsPage({
           <div className="space-y-6">
             <section className="rounded-xl border border-slate-200 p-4">
               <div className="mb-1 text-sm font-semibold text-slate-800">
-                내보내기 (현재 소속: {activeWorkspace.name})
+                {t('settings.exportTitle', { name: activeWorkspace.name })}
               </div>
-              <p className="mb-3 text-xs text-slate-500">
-                전체 백업용 JSON 또는 브라우저·다른 서비스 호환용 HTML/CSV로 내려받을 수 있습니다.
-              </p>
+              <p className="mb-3 text-xs text-slate-500">{t('settings.exportDesc')}</p>
               <div className="flex flex-wrap gap-2">
                 <a
                   href={api.exportWorkspaceUrl(activeWorkspace.id, 'json')}
@@ -1127,7 +1328,7 @@ export function SettingsPage({
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
                 >
                   <Download className="h-3.5 w-3.5 text-sky-600" />
-                  <span>linktive JSON 백업</span>
+                  <span>{t('settings.exportJson')}</span>
                 </a>
                 <a
                   href={api.exportWorkspaceUrl(activeWorkspace.id, 'html')}
@@ -1135,7 +1336,7 @@ export function SettingsPage({
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
                 >
                   <Download className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>표준 북마크 HTML</span>
+                  <span>{t('settings.exportHtml')}</span>
                 </a>
                 <a
                   href={api.exportWorkspaceUrl(activeWorkspace.id, 'csv')}
@@ -1143,29 +1344,30 @@ export function SettingsPage({
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
                 >
                   <Download className="h-3.5 w-3.5 text-indigo-600" />
-                  <span>CSV (Excel/Raindrop 호환)</span>
+                  <span>{t('settings.exportCsv')}</span>
                 </a>
               </div>
             </section>
 
             <section className="rounded-xl border border-slate-200 p-4">
-              <div className="mb-1 text-sm font-semibold text-slate-800">가져오기</div>
-              <p className="mb-3 text-xs text-slate-500">
-                linktive JSON, 브라우저/Raindrop HTML, Raindrop.io CSV, Linkwarden JSON, Karakeep
-                JSON 파일을 지원합니다.
-              </p>
+              <div className="mb-1 text-sm font-semibold text-slate-800">
+                {t('settings.importTitle')}
+              </div>
+              <p className="mb-3 text-xs text-slate-500">{t('settings.importDesc')}</p>
               <form onSubmit={handleImportSubmit} className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-700">파일 형식</label>
+                    <label className="mb-1 block text-xs font-medium text-slate-700">
+                      {t('settings.importFormat')}
+                    </label>
                     <select
                       value={importFormat}
                       onChange={(e) => setImportFormat(e.target.value)}
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
                     >
-                      <option value="auto">자동 감지 (추천)</option>
+                      <option value="auto">{t('settings.importAuto')}</option>
                       <option value="linktive_json">linktive JSON</option>
-                      <option value="html">브라우저 / Raindrop HTML</option>
+                      <option value="html">{t('settings.importHtml')}</option>
                       <option value="raindrop_csv">Raindrop.io CSV</option>
                       <option value="linkwarden_json">Linkwarden JSON</option>
                       <option value="karakeep_json">Karakeep JSON</option>
@@ -1173,7 +1375,9 @@ export function SettingsPage({
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-700">파일 선택</label>
+                    <label className="mb-1 block text-xs font-medium text-slate-700">
+                      {t('settings.importFile')}
+                    </label>
                     <input
                       type="file"
                       accept=".json,.html,.htm,.csv"
@@ -1189,7 +1393,7 @@ export function SettingsPage({
                     checked={skipDuplicates}
                     onChange={(e) => setSkipDuplicates(e.target.checked)}
                   />
-                  <span>이미 저장된 동일 URL은 중복 건너뛰기</span>
+                  <span>{t('settings.skipDuplicates')}</span>
                 </label>
 
                 <div className="flex justify-end">
@@ -1199,95 +1403,11 @@ export function SettingsPage({
                     className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
                   >
                     <Upload className="h-3.5 w-3.5" />
-                    <span>{importing ? '가져오는 중...' : '가져오기 실행'}</span>
+                    <span>{importing ? t('settings.importing') : t('settings.importRun')}</span>
                   </button>
                 </div>
               </form>
             </section>
-          </div>
-        )}
-
-        {tab === 'apikeys' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs">
-              <span className="text-slate-600">
-                Bearer 토큰으로 REST API를 호출할 수 있습니다.
-              </span>
-              <button
-                type="button"
-                onClick={onOpenApiDocs}
-                className="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline"
-              >
-                <span>REST API 활용 매뉴얼</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateKey} className="flex gap-2">
-              <input
-                type="text"
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="키 이름 (예: Chrome 확장, n8n)"
-                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
-              />
-              <button
-                type="submit"
-                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
-              >
-                발급
-              </button>
-            </form>
-
-            {createdToken && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
-                <div className="mb-1 font-semibold">
-                  발급된 API 토큰 (지금 한 번만 표시됩니다):
-                </div>
-                <div className="flex items-center justify-between gap-2 rounded bg-white px-2.5 py-1.5 font-mono">
-                  <span className="truncate">{createdToken}</span>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const ok = await copyToClipboard(createdToken);
-                      if (ok) setMessage('API 토큰을 복사했습니다.');
-                      else setError('복사에 실패했습니다. 직접 선택해 복사해 주세요.');
-                    }}
-                    className="inline-flex shrink-0 items-center gap-1 text-sky-600"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    복사
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1.5 text-sm">
-              {apiKeys.length === 0 ? (
-                <p className="text-xs text-slate-400">발급된 API 키가 없습니다.</p>
-              ) : (
-                apiKeys.map((k) => (
-                  <div
-                    key={k.id}
-                    className="flex items-center justify-between rounded-lg bg-slate-50 px-3.5 py-2.5"
-                  >
-                    <div>
-                      <div className="font-medium">{k.name}</div>
-                      <div className="text-xs text-slate-400">생성: {k.created_at.slice(0, 10)}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteKey(k.id)}
-                      title="API 키 삭제"
-                      aria-label="API 키 삭제"
-                      className="rounded p-1 text-slate-400 hover:text-rose-600"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
           </div>
         )}
 
@@ -1301,32 +1421,35 @@ export function SettingsPage({
         )}
       </div>
 
-      {deleteTargetWs && (
+        {deleteTargetWs && (
         <ConfirmModal
-          title="소속 삭제"
-          message={`"${deleteTargetWs.name}" 소속을 삭제할까요? 이 소속에 저장된 컬렉션과 북마크도 함께 삭제됩니다.`}
-          confirmLabel="삭제"
+          title={t('settings.wsDeleteTitle')}
+          message={t('settings.wsDeleteMsg', { name: deleteTargetWs.name })}
+          confirmLabel={t('common.delete')}
           onClose={() => setDeleteTargetWs(null)}
           onConfirm={async () => {
             await api.deleteWorkspace(deleteTargetWs.id);
+            if (settings.default_workspace_id === deleteTargetWs.id) {
+              await onUpdateSettings(buildMergedSettings({ default_workspace_id: '' }));
+            }
             onWorkspaceDeleted(deleteTargetWs.id);
-            setMessage(`"${deleteTargetWs.name}" 소속을 삭제했습니다.`);
+            setMessage(t('settings.wsDeletedMsg', { name: deleteTargetWs.name }));
           }}
         />
       )}
 
       {confirmClearArchives && (
         <ConfirmModal
-          title="아카이빙 데이터 모두 비우기"
-          message={`"${activeWorkspace.name}" 소속의 모든 아카이빙 본문과 로컬 이미지를 삭제할까요? 북마크 목록과 URL은 그대로 유지됩니다.`}
-          confirmLabel="비우기"
+          title={t('settings.clearArchivesModalTitle')}
+          message={t('settings.clearArchivesModalMsg', { name: activeWorkspace.name })}
+          confirmLabel={t('settings.clearArchivesBtn')}
           onClose={() => setConfirmClearArchives(false)}
           onConfirm={async () => {
             const res = await api.clearWorkspaceArchives(activeWorkspace.id);
             const refreshed = await api.getWorkspaceUsage(activeWorkspace.id);
             setWorkspaceUsage(refreshed);
             await onDataImported();
-            setMessage(`아카이빙 데이터 ${res.deleted}건을 삭제했습니다.`);
+            setMessage(t('settings.clearArchivesDone', { count: res.deleted }));
           }}
         />
       )}

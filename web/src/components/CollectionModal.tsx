@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Search, X } from 'lucide-react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useI18n } from '../i18n';
 import type { Collection } from '../types/bookmark';
 import { flattenCollectionsTree } from '../utils/collections';
 import { COLLECTION_COLORS, COLLECTION_ICONS, CollectionIcon } from './IconPicker';
@@ -28,6 +29,7 @@ export function CollectionModal({
   onClose,
   onSave,
 }: CollectionModalProps) {
+  const { t } = useI18n();
   useScrollLock();
   const [name, setName] = useState(editing?.name ?? '');
   const [description, setDescription] = useState(editing?.description ?? '');
@@ -130,7 +132,7 @@ export function CollectionModal({
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장에 실패했습니다.');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -148,14 +150,14 @@ export function CollectionModal({
           <div className="flex items-center gap-2">
             <CollectionIcon name={icon} color={normalizedPickerColor} className="h-5 w-5" />
             <h2 className="text-base font-semibold text-slate-900">
-              {editing ? '컬렉션 수정' : '새 컬렉션'}
+              {editing ? t('collectionModal.titleEdit') : t('collectionModal.titleNew')}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            title="닫기"
-            aria-label="닫기"
+            title={t('common.close')}
+            aria-label={t('common.close')}
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />
@@ -165,25 +167,29 @@ export function CollectionModal({
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">이름</label>
+              <label className="mb-1 block text-xs font-medium text-slate-700">
+                {t('collectionModal.name')}
+              </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="예: 개발 자료"
+                placeholder={t('collectionModal.namePlaceholder')}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">상위 컬렉션</label>
+              <label className="mb-1 block text-xs font-medium text-slate-700">
+                {t('collectionModal.parent')}
+              </label>
               <select
                 value={parentId}
                 onChange={(e) => setParentId(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
               >
-                <option value="">없음 (최상위)</option>
+                <option value="">{t('collectionModal.parentNone')}</option>
                 {parentOptions.map(({ collection, indentedLabel }) => (
                   <option key={collection.id} value={collection.id}>
                     {indentedLabel}
@@ -194,19 +200,23 @@ export function CollectionModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">설명</label>
+            <label className="mb-1 block text-xs font-medium text-slate-700">
+              {t('collectionModal.description')}
+            </label>
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="컬렉션 진입 시 상단에 표시됩니다."
+              placeholder={t('collectionModal.descPlaceholder')}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
             />
           </div>
 
           <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <label className="text-xs font-medium text-slate-700">아이콘</label>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-medium text-slate-700">
+                {t('collectionModal.icon')}
+              </label>
               <div className="flex rounded-md bg-slate-100 p-0.5 text-[11px]">
                 <button
                   type="button"
@@ -215,7 +225,7 @@ export function CollectionModal({
                     !useExternalIcons ? 'bg-white font-medium text-slate-900 shadow-2xs' : 'text-slate-500'
                   }`}
                 >
-                  기본 아이콘
+                  {t('collectionModal.basicIcons')}
                 </button>
                 <button
                   type="button"
@@ -224,7 +234,7 @@ export function CollectionModal({
                     useExternalIcons ? 'bg-white font-medium text-slate-900 shadow-2xs' : 'text-slate-500'
                   }`}
                 >
-                  외부 아이콘 (Iconify)
+                  {t('collectionModal.externalIcons')}
                 </button>
               </div>
             </div>
@@ -237,8 +247,8 @@ export function CollectionModal({
                 onChange={(e) => setIconQuery(e.target.value)}
                 placeholder={
                   useExternalIcons
-                    ? '영문 키워드 2자 이상 검색 (예: house, shopping, server)'
-                    : '아이콘 검색 (예: house, 집, car, 쇼핑)'
+                    ? t('collectionModal.searchExternal')
+                    : t('collectionModal.searchLocal')
                 }
                 className="w-full rounded-lg border border-slate-200 py-1.5 pl-8 pr-3 text-xs outline-none focus:border-sky-500"
               />
@@ -248,7 +258,7 @@ export function CollectionModal({
               <div className="grid max-h-36 grid-cols-8 gap-1.5 overflow-y-auto rounded-lg border border-slate-100 p-1.5">
                 {filteredLocalIcons.length === 0 ? (
                   <p className="col-span-8 py-3 text-center text-xs text-slate-400">
-                    일치하는 기본 아이콘이 없습니다. 외부 아이콘(Iconify) 탭을 이용해 보세요.
+                    {t('collectionModal.noLocalIcons')}
                   </p>
                 ) : (
                   filteredLocalIcons.map((item) => (
@@ -276,13 +286,15 @@ export function CollectionModal({
               <div className="grid max-h-36 grid-cols-8 gap-1.5 overflow-y-auto rounded-lg border border-slate-100 p-1.5">
                 {iconQuery.trim().length < 2 ? (
                   <p className="col-span-8 py-3 text-center text-xs text-slate-400">
-                    검색어를 2글자 이상 입력하면 Iconify 무료 아이콘을 검색합니다.
+                    {t('collectionModal.iconifyHint')}
                   </p>
                 ) : loadingExternal ? (
-                  <p className="col-span-8 py-3 text-center text-xs text-slate-400">검색 중...</p>
+                  <p className="col-span-8 py-3 text-center text-xs text-slate-400">
+                    {t('collectionModal.searching')}
+                  </p>
                 ) : externalIcons.length === 0 ? (
                   <p className="col-span-8 py-3 text-center text-xs text-slate-400">
-                    검색 결과가 없습니다.
+                    {t('collectionModal.noResults')}
                   </p>
                 ) : (
                   externalIcons.map((extId) => {
@@ -313,13 +325,15 @@ export function CollectionModal({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">색상</label>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">
+              {t('collectionModal.color')}
+            </label>
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="color"
                 value={normalizedPickerColor}
                 onChange={(e) => setColor(e.target.value)}
-                aria-label="색상 선택"
+                aria-label={t('collectionModal.pickColor')}
                 className="h-8 w-9 cursor-pointer rounded border border-slate-200 bg-white p-0.5"
               />
               <input
@@ -354,14 +368,14 @@ export function CollectionModal({
               onClick={onClose}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
             >
-              취소
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="rounded-lg bg-sky-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
             >
-              {saving ? '저장 중...' : '저장'}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </form>

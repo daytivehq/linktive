@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useI18n } from '../i18n';
 
 interface ConfirmModalProps {
   title: string;
@@ -15,11 +16,12 @@ interface ConfirmModalProps {
 export function ConfirmModal({
   title,
   message,
-  confirmLabel = '삭제',
+  confirmLabel,
   danger = true,
   onClose,
   onConfirm,
 }: ConfirmModalProps) {
+  const { t } = useI18n();
   useScrollLock();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -33,7 +35,7 @@ export function ConfirmModal({
       await onConfirm();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '요청 처리에 실패했습니다.');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     } finally {
       setBusy(false);
     }
@@ -60,8 +62,8 @@ export function ConfirmModal({
             type="button"
             disabled={busy}
             onClick={onClose}
-            title="닫기"
-            aria-label="닫기"
+            title={t('common.close')}
+            aria-label={t('common.close')}
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />
@@ -81,7 +83,7 @@ export function ConfirmModal({
             onClick={onClose}
             className="rounded-lg border border-slate-200 px-3.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
           >
-            취소
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -91,7 +93,7 @@ export function ConfirmModal({
               danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-sky-600 hover:bg-sky-700'
             }`}
           >
-            {busy ? '처리 중...' : confirmLabel}
+            {busy ? t('common.processing') : (confirmLabel ?? t('common.delete'))}
           </button>
         </div>
       </div>

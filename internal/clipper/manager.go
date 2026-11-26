@@ -497,7 +497,7 @@ func (m *Manager) downloadAssets(
 		_ = os.Remove(assetDir)
 	}
 	if skippedForLimit > 0 {
-		notice = fmt.Sprintf("용량 제한 정책에 따라 리소스 %d개는 로컬 저장에서 제외되었습니다.", skippedForLimit)
+		notice = fmt.Sprintf("Skipped %d resource(s) due to archive size limits.", skippedForLimit)
 	}
 	return
 }

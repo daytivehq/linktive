@@ -3,6 +3,7 @@ import { Copy, ExternalLink, Globe, Plus, Trash2, Users, X } from 'lucide-react'
 import { api } from '../api/client';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useI18n } from '../i18n';
 import type { Collection, CollectionShare, Workspace } from '../types/bookmark';
 import { copyToClipboard } from '../utils/clipboard';
 
@@ -21,6 +22,7 @@ export function CollectionShareModal({
   onClose,
   onCollectionUpdated,
 }: CollectionShareModalProps) {
+  const { t } = useI18n();
   useScrollLock();
   const [col, setCol] = useState(collection);
   const [shares, setShares] = useState<CollectionShare[]>([]);
@@ -64,7 +66,7 @@ export function CollectionShareModal({
       setCol(updated);
       onCollectionUpdated(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '공개 설정 변경 실패');
+      setError(err instanceof Error ? err.message : t('shareModal.publicToggleFailed'));
     }
   };
 
@@ -81,9 +83,9 @@ export function CollectionShareModal({
       });
       setShares((prev) => [...prev.filter((s) => s.id !== share.id), share]);
       setTargetEmail('');
-      setMessage('공유 대상을 추가했습니다.');
+      setMessage(t('shareModal.shareAdded'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '공유 추가 실패');
+      setError(err instanceof Error ? err.message : t('shareModal.shareAddFailed'));
     }
   };
 
@@ -93,7 +95,7 @@ export function CollectionShareModal({
       await api.removeCollectionShare(workspaceId, col.id, shareId);
       setShares((prev) => prev.filter((s) => s.id !== shareId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '공유 해제 실패');
+      setError(err instanceof Error ? err.message : t('shareModal.shareRemoveFailed'));
     }
   };
 
@@ -105,21 +107,19 @@ export function CollectionShareModal({
       className="fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-900/40 p-4"
     >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">
-              &ldquo;{col.name}&rdquo; 공유 및 공개 설정
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold text-slate-900">
+              {t('shareModal.title', { name: col.name })}
             </h2>
-            <p className="text-xs text-slate-500">
-              로그인 없는 공개 링크와 사용자/소속 공유를 따로 관리합니다.
-            </p>
+            <p className="text-xs text-slate-500">{t('shareModal.subtitle')}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            title="닫기"
-            aria-label="닫기"
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+            title={t('common.close')}
+            aria-label={t('common.close')}
+            className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />
           </button>
@@ -130,24 +130,24 @@ export function CollectionShareModal({
           <section className="rounded-xl border border-slate-200 p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <Globe className="h-4 w-4 text-sky-600" />
+                <Globe className="h-4 w-4 shrink-0 text-sky-600" />
                 <div>
-                  <div className="text-sm font-semibold text-slate-800">공개 링크 (Public)</div>
-                  <div className="text-xs text-slate-500">
-                    링크를 아는 사람은 로그인 없이 이 컬렉션을 볼 수 있습니다.
+                  <div className="text-sm font-semibold text-slate-800">
+                    {t('shareModal.publicTitle')}
                   </div>
+                  <div className="text-xs text-slate-500">{t('shareModal.publicDesc')}</div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => void handleTogglePublic()}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium ${
                   col.is_public
                     ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                     : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                {col.is_public ? '공개 중' : '비공개'}
+                {col.is_public ? t('shareModal.publicOn') : t('shareModal.publicOff')}
               </button>
             </div>
 
@@ -160,15 +160,15 @@ export function CollectionShareModal({
                     const ok = await copyToClipboard(publicUrl);
                     if (ok) {
                       setError('');
-                      setMessage('공개 링크를 복사했습니다.');
+                      setMessage(t('shareModal.publicCopied'));
                     } else {
-                      setError('브라우저에서 클립보드 복사가 차단되었습니다. 링크를 직접 선택해 복사해 주세요.');
+                      setError(t('shareModal.copyBlocked'));
                     }
                   }}
                   className="inline-flex shrink-0 items-center gap-1 rounded bg-white px-2 py-1 font-medium text-sky-600 shadow-2xs hover:bg-sky-50"
                 >
                   <Copy className="h-3 w-3" />
-                  복사
+                  {t('common.copy')}
                 </button>
                 <a
                   href={publicUrl}
@@ -177,7 +177,7 @@ export function CollectionShareModal({
                   className="inline-flex shrink-0 items-center gap-1 rounded bg-white px-2 py-1 font-medium text-slate-600 shadow-2xs hover:bg-slate-100"
                 >
                   <ExternalLink className="h-3 w-3" />
-                  열기
+                  {t('common.open')}
                 </a>
               </div>
             )}
@@ -186,12 +186,12 @@ export function CollectionShareModal({
           {/* Shared Access Section */}
           <section className="rounded-xl border border-slate-200 p-4">
             <div className="mb-3 flex items-center gap-2">
-              <Users className="h-4 w-4 text-indigo-600" />
+              <Users className="h-4 w-4 shrink-0 text-indigo-600" />
               <div>
-                <div className="text-sm font-semibold text-slate-800">사용자 · 소속 공유</div>
-                <div className="text-xs text-slate-500">
-                  지정한 사용자나 다른 소속에 열람/편집 권한으로 공유합니다.
+                <div className="text-sm font-semibold text-slate-800">
+                  {t('shareModal.accessTitle')}
                 </div>
+                <div className="text-xs text-slate-500">{t('shareModal.accessDesc')}</div>
               </div>
             </div>
 
@@ -202,8 +202,8 @@ export function CollectionShareModal({
                   onChange={(e) => setTargetType(e.target.value as 'user' | 'workspace')}
                   className="min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs sm:col-span-4"
                 >
-                  <option value="user">사용자 (이메일)</option>
-                  <option value="workspace">소속 (Workspace)</option>
+                  <option value="user">{t('shareModal.targetUser')}</option>
+                  <option value="workspace">{t('shareModal.targetWorkspace')}</option>
                 </select>
 
                 {targetType === 'user' ? (
@@ -222,7 +222,7 @@ export function CollectionShareModal({
                     className="min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs sm:col-span-8"
                   >
                     {shareableWorkspaces.length === 0 ? (
-                      <option value="">공유 가능한 다른 소속 없음</option>
+                      <option value="">{t('shareModal.noOtherWorkspaces')}</option>
                     ) : (
                       shareableWorkspaces.map((w) => (
                         <option key={w.id} value={w.id}>
@@ -240,8 +240,8 @@ export function CollectionShareModal({
                   onChange={(e) => setRole(e.target.value as 'viewer' | 'editor')}
                   className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
                 >
-                  <option value="viewer">열람만 가능</option>
-                  <option value="editor">편집 가능</option>
+                  <option value="viewer">{t('common.viewOnly')}</option>
+                  <option value="editor">{t('common.canEdit')}</option>
                 </select>
 
                 <button
@@ -250,27 +250,29 @@ export function CollectionShareModal({
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  공유 추가
+                  {t('shareModal.addShare')}
                 </button>
               </div>
             </form>
 
             <div className="mt-3 space-y-1.5 text-xs">
               {shares.length === 0 ? (
-                <p className="text-slate-400">아직 공유된 대상이 없습니다.</p>
+                <p className="text-slate-400">{t('shareModal.noShares')}</p>
               ) : (
                 shares.map((s) => (
                   <div
                     key={s.id}
-                    className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <span className="mr-1.5 rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                        {s.target_type === 'user' ? '사용자' : '소속'}
+                        {s.target_type === 'user'
+                          ? t('shareModal.typeUser')
+                          : t('shareModal.typeWorkspace')}
                       </span>
-                      <span className="font-medium text-slate-800">{s.target_label}</span>
+                      <span className="truncate font-medium text-slate-800">{s.target_label}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <span
                         className={`rounded px-2 py-0.5 font-medium ${
                           s.role === 'editor'
@@ -278,13 +280,13 @@ export function CollectionShareModal({
                             : 'bg-slate-200 text-slate-700'
                         }`}
                       >
-                        {s.role === 'editor' ? '편집 가능' : '열람만'}
+                        {s.role === 'editor' ? t('common.canEdit') : t('common.viewOnlyShort')}
                       </span>
                       <button
                         type="button"
                         onClick={() => void handleRemoveShare(s.id)}
-                        title="공유 해제"
-                        aria-label="공유 해제"
+                        title={t('shareModal.removeShare')}
+                        aria-label={t('shareModal.removeShare')}
                         className="text-slate-400 hover:text-rose-600"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

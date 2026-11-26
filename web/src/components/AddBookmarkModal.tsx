@@ -3,6 +3,7 @@ import { AlertTriangle, X } from 'lucide-react';
 import { ApiError } from '../api/client';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useI18n } from '../i18n';
 import type { Bookmark, Collection } from '../types/bookmark';
 
 interface AddBookmarkModalProps {
@@ -16,6 +17,7 @@ interface AddBookmarkModalProps {
 }
 
 export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBookmarkModalProps) {
+  const { t } = useI18n();
   useScrollLock();
   useEscapeKey(onClose);
   const [url, setUrl] = useState('');
@@ -26,7 +28,7 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
   const submitWithOption = async (allowDuplicate = false) => {
     const trimmed = url.trim();
     if (!trimmed) {
-      setError('URL을 입력해 주세요.');
+      setError(t('addBookmark.urlRequired'));
       return;
     }
     setError('');
@@ -41,9 +43,9 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setDuplicateInfo(err.existing ?? null);
-        setError('이 공간에 동일한 URL이 이미 저장되어 있습니다.');
+        setError(t('addBookmark.duplicateError'));
       } else {
-        setError(err instanceof Error ? err.message : '저장에 실패했습니다.');
+        setError(err instanceof Error ? err.message : t('addBookmark.saveFailed'));
       }
     } finally {
       setSaving(false);
@@ -55,6 +57,10 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
     void submitWithOption(false);
   };
 
+  const targetName = targetCollection
+    ? t('addBookmark.targetCollection', { name: targetCollection.name })
+    : t('common.uncollected');
+
   return (
     <div
       onMouseDown={(e) => {
@@ -64,12 +70,12 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
     >
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">사이트 추가</h2>
+          <h2 className="text-base font-semibold text-slate-900">{t('addBookmark.title')}</h2>
           <button
             type="button"
             onClick={onClose}
-            title="닫기"
-            aria-label="닫기"
+            title={t('common.close')}
+            aria-label={t('common.close')}
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />
@@ -92,9 +98,7 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
             />
             <p className="mt-1.5 text-xs text-slate-500">
-              제목·설명·파비콘은 자동으로 수집되며,{' '}
-              <strong>{targetCollection ? `"${targetCollection.name}" 컬렉션` : '미분류'}</strong>에
-              저장됩니다.
+              {t('addBookmark.hint', { target: targetName })}
             </p>
           </div>
 
@@ -107,7 +111,10 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
               {duplicateInfo && (
                 <div className="mt-1.5 space-y-2 text-amber-900">
                   <div>
-                    기존 북마크: <strong>{duplicateInfo.title}</strong> ({duplicateInfo.domain})
+                    {t('addBookmark.existingBookmark', {
+                      title: duplicateInfo.title,
+                      domain: duplicateInfo.domain,
+                    })}
                   </div>
                   <button
                     type="button"
@@ -115,7 +122,7 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
                     onClick={() => void submitWithOption(true)}
                     className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-700"
                   >
-                    중복 허용하여 저장
+                    {t('addBookmark.allowDuplicate')}
                   </button>
                 </div>
               )}
@@ -128,14 +135,14 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
               onClick={onClose}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
             >
-              취소
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="rounded-lg bg-sky-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
             >
-              {saving ? '수집 및 저장 중...' : '추가'}
+              {saving ? t('addBookmark.submitting') : t('addBookmark.submit')}
             </button>
           </div>
         </form>

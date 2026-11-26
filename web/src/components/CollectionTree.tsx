@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FolderPlus, MoreHorizontal, Pencil, Share2, Trash2 } from 'lucide-react';
+import { useI18n } from '../i18n';
 import type { Collection } from '../types/bookmark';
 import { CollectionIcon } from './IconPicker';
 
@@ -35,6 +36,7 @@ export function CollectionTree({
   onDropBookmark,
   onContextMenu,
 }: CollectionTreeProps) {
+  const { locale, t } = useI18n();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [draggingColId, setDraggingColId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -73,11 +75,11 @@ export function CollectionTree({
       map.set(key, list);
     }
     for (const [k, list] of map.entries()) {
-      list.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+      list.sort((a, b) => a.name.localeCompare(b.name, locale));
       map.set(k, list);
     }
     return map;
-  }, [collections]);
+  }, [collections, locale]);
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
@@ -156,11 +158,11 @@ export function CollectionTree({
               <button
                 type="button"
                 onClick={() => toggleExpand(col.id)}
+                title={t('collectionTree.toggleSub')}
+                aria-label={t('collectionTree.toggleSub')}
                 className={`flex h-5 w-4 shrink-0 items-center justify-center text-slate-400 ${
                   children.length === 0 ? 'invisible' : ''
                 }`}
-                title="하위 컬렉션 접기/펼치기"
-                aria-label="하위 폴더 토글"
               >
                 {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
               </button>
@@ -182,8 +184,8 @@ export function CollectionTree({
                     e.stopPropagation();
                     setOpenMenuId((prev) => (prev === col.id ? null : col.id));
                   }}
-                  title="컬렉션 메뉴"
-                  aria-label="컬렉션 메뉴"
+                  title={t('collectionTree.menu')}
+                  aria-label={t('collectionTree.menu')}
                   className={`rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700 ${
                     isMenuOpen ? 'block bg-white text-slate-700' : 'block md:hidden md:group-hover:block'
                   }`}
@@ -200,7 +202,7 @@ export function CollectionTree({
           {isMenuOpen && canEdit && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="absolute right-1 top-8 z-30 w-40 rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
+              className="absolute right-1 top-8 z-30 min-w-44 whitespace-nowrap rounded-xl border border-slate-200 bg-white p-1.5 text-xs shadow-lg"
             >
               <button
                 type="button"
@@ -210,8 +212,8 @@ export function CollectionTree({
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
               >
-                <FolderPlus className="h-3.5 w-3.5 text-slate-500" />
-                <span>하위 컬렉션 추가</span>
+                <FolderPlus className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                <span>{t('sidebar.addSubcollection')}</span>
               </button>
               <button
                 type="button"
@@ -221,8 +223,8 @@ export function CollectionTree({
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
               >
-                <Pencil className="h-3.5 w-3.5 text-slate-500" />
-                <span>수정</span>
+                <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                <span>{t('common.edit')}</span>
               </button>
               <button
                 type="button"
@@ -232,8 +234,8 @@ export function CollectionTree({
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-slate-700 hover:bg-slate-100"
               >
-                <Share2 className="h-3.5 w-3.5 text-slate-500" />
-                <span>공유 및 공개</span>
+                <Share2 className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                <span>{t('sidebar.shareAndPublic')}</span>
               </button>
               <div className="my-1 border-t border-slate-100" />
               <button
@@ -244,8 +246,8 @@ export function CollectionTree({
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-rose-600 hover:bg-rose-50"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>삭제</span>
+                <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                <span>{t('common.delete')}</span>
               </button>
             </div>
           )}
@@ -259,7 +261,7 @@ export function CollectionTree({
   return (
     <div className="space-y-0.5">
       {collections.length === 0 ? (
-        <p className="px-2.5 py-2 text-xs text-slate-400">생성된 컬렉션이 없습니다.</p>
+        <p className="px-2.5 py-2 text-xs text-slate-400">{t('collectionTree.empty')}</p>
       ) : (
         renderBranch('__root__', 0)
       )}
@@ -286,7 +288,7 @@ export function CollectionTree({
               : 'border-slate-300 text-slate-500'
           }`}
         >
-          여기에 놓아 최상위 폴더로 이동
+          {t('collectionTree.dropToRoot')}
         </div>
       )}
     </div>

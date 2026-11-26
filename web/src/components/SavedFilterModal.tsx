@@ -2,21 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { ExternalLink, Filter, X } from 'lucide-react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useI18n } from '../i18n';
 import type { SavedFilter } from '../types/bookmark';
 
 const FILTER_COLORS = ['#0284c7', '#4f46e5', '#059669', '#d97706', '#e11d48', '#475569'];
-
-const OPERATOR_HINTS = [
-  { token: 'tags:', desc: '태그 포함 (예: tags:커뮤니티)' },
-  { token: '-tags:', desc: '태그 제외 (예: -tags:임시)' },
-  { token: 'site:', desc: '도메인 (예: site:github.com)' },
-  { token: 'in:', desc: '컬렉션 (예: in:개발)' },
-  { token: 'date:', desc: '특정 날짜 (YYYY-MM-DD)' },
-  { token: 'after:', desc: '이후 날짜' },
-  { token: 'before:', desc: '이전 날짜' },
-  { token: 'is:favorite ', desc: '즐겨찾기만' },
-  { token: 'is:broken ', desc: '손상 링크만' },
-];
 
 interface SavedFilterModalProps {
   editing: SavedFilter | null;
@@ -39,6 +28,7 @@ export function SavedFilterModal({
   onOpenAdvancedSearch,
   onSave,
 }: SavedFilterModalProps) {
+  const { t } = useI18n();
   useScrollLock();
   useEscapeKey(onClose);
 
@@ -47,6 +37,18 @@ export function SavedFilterModal({
   const [color, setColor] = useState(editing?.color ?? '#0284c7');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  const operatorHints = [
+    { token: 'tags:', desc: t('search.op.tagsEx') },
+    { token: '-tags:', desc: t('search.op.excludeTagsEx') },
+    { token: 'site:', desc: t('search.op.siteEx') },
+    { token: 'in:', desc: t('search.op.inEx') },
+    { token: 'date:', desc: t('search.op.dateEx') },
+    { token: 'after:', desc: t('search.op.afterEx') },
+    { token: 'before:', desc: t('search.op.beforeEx') },
+    { token: 'is:favorite ', desc: t('search.op.favorite') },
+    { token: 'is:broken ', desc: t('feed.badge.broken') },
+  ];
 
   const insertToken = (token: string) => {
     setQuery((prev) => {
@@ -58,7 +60,7 @@ export function SavedFilterModal({
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !query.trim()) {
-      setError('필터 이름과 검색 조건을 모두 입력해 주세요.');
+      setError(t('filterModal.requiredError'));
       return;
     }
     setError('');
@@ -73,7 +75,7 @@ export function SavedFilterModal({
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장에 실패했습니다.');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -96,15 +98,15 @@ export function SavedFilterModal({
               <Filter className="h-4 w-4" />
             </div>
             <h2 className="text-base font-semibold text-slate-900">
-              {editing ? '필터 수정' : '새 필터'}
+              {editing ? t('filterModal.titleEdit') : t('filterModal.titleNew')}
             </h2>
           </div>
           <button
             type="button"
             disabled={busy}
             onClick={onClose}
-            title="닫기"
-            aria-label="닫기"
+            title={t('common.close')}
+            aria-label={t('common.close')}
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
           >
             <X className="h-4 w-4" />
@@ -113,32 +115,36 @@ export function SavedFilterModal({
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">필터 이름</label>
+            <label className="mb-1 block text-xs font-medium text-slate-700">
+              {t('filterModal.name')}
+            </label>
             <input
               type="text"
               autoFocus
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="예: 커뮤니티 즐겨찾기"
+              placeholder={t('filterModal.namePlaceholder')}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">검색 조건</label>
+            <label className="mb-1 block text-xs font-medium text-slate-700">
+              {t('filterModal.query')}
+            </label>
             <input
               type="text"
               required
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="예: tags:커뮤니티 is:favorite"
+              placeholder={t('filterModal.queryPlaceholder')}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs outline-none focus:border-sky-500"
             />
             <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[11px] font-semibold text-slate-600">
-                  사용 가능한 연산자 (클릭해 추가)
+                  {t('filterModal.operatorsLabel')}
                 </span>
                 <button
                   type="button"
@@ -148,12 +154,12 @@ export function SavedFilterModal({
                   }}
                   className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 hover:underline"
                 >
-                  <span>자세한 검색 규칙</span>
+                  <span>{t('filterModal.rulesLink')}</span>
                   <ExternalLink className="h-3 w-3" />
                 </button>
               </div>
               <div className="flex flex-wrap gap-1">
-                {OPERATOR_HINTS.map((item) => (
+                {operatorHints.map((item) => (
                   <button
                     key={item.token}
                     type="button"
@@ -165,14 +171,14 @@ export function SavedFilterModal({
                   </button>
                 ))}
               </div>
-              <p className="mt-1.5 text-[11px] text-slate-400">
-                공백 또는 쉼표로 조건을 여러 개 조합하면 모두 만족하는 북마크만 표시됩니다.
-              </p>
+              <p className="mt-1.5 text-[11px] text-slate-400">{t('filterModal.comboHint')}</p>
             </div>
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">색상</label>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">
+              {t('collectionModal.color')}
+            </label>
             <div className="flex flex-wrap gap-2">
               {FILTER_COLORS.map((hex) => (
                 <button
@@ -180,7 +186,7 @@ export function SavedFilterModal({
                   type="button"
                   onClick={() => setColor(hex)}
                   title={hex}
-                  aria-label={`색상 ${hex}`}
+                  aria-label={t('filterModal.colorAria', { hex })}
                   className={`h-6 w-6 rounded-full border-2 transition ${
                     color === hex ? 'scale-110 border-slate-900' : 'border-transparent'
                   }`}
@@ -201,14 +207,14 @@ export function SavedFilterModal({
               onClick={onClose}
               className="rounded-lg border border-slate-200 px-3.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
             >
-              취소
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               disabled={busy}
               className="rounded-lg bg-sky-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
             >
-              {busy ? '저장 중...' : '저장'}
+              {busy ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </form>

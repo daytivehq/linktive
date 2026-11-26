@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { useI18n } from '../i18n';
 import type {
   AdminUsage,
   ArchivePolicy,
@@ -33,6 +34,7 @@ interface AdminPageProps {
 }
 
 export function AdminPage({ currentUser, onBack }: AdminPageProps) {
+  const { dateLocale, t } = useI18n();
   const [registrationEnabled, setRegistrationEnabled] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [invites, setInvites] = useState<UserInvite[]>([]);
@@ -76,20 +78,20 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
         setArchivePolicy(usageRes.archive_policy);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : '관리자 정보를 불러오지 못했습니다.');
+        setError(err instanceof Error ? err.message : t('admin.loadFailed'));
       });
-  }, [currentUser.is_admin]);
+  }, [currentUser.is_admin, t]);
 
   if (!currentUser.is_admin) {
     return (
       <div className="mx-auto max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 text-center">
-        <p className="text-sm font-medium text-slate-700">관리자 권한이 필요합니다.</p>
+        <p className="text-sm font-medium text-slate-700">{t('admin.required')}</p>
         <button
           type="button"
           onClick={onBack}
           className="mt-4 rounded-lg bg-sky-600 px-4 py-2 text-xs font-medium text-white"
         >
-          돌아가기
+          {t('admin.back')}
         </button>
       </div>
     );
@@ -101,13 +103,9 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
     try {
       const res = await api.adminUpdateSettings(!registrationEnabled);
       setRegistrationEnabled(res.registration_enabled);
-      setMessage(
-        res.registration_enabled
-          ? '누구나 회원가입할 수 있도록 허용했습니다.'
-          : '신규 공개 회원가입을 비활성화했습니다. (초대 링크로만 가입 가능)',
-      );
+      setMessage(res.registration_enabled ? t('admin.regEnabledMsg') : t('admin.regDisabledMsg'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '설정 변경 실패');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     }
   };
 
@@ -117,9 +115,9 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
     try {
       const updated = await api.adminUpdateUser(u.id, !u.is_admin);
       setUsers((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      setMessage(`${updated.name} 님의 권한을 변경했습니다.`);
+      setMessage(t('admin.userRoleUpdated', { name: updated.name }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '권한 변경 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -131,21 +129,18 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       setInvites((prev) => [inv, ...prev]);
       const url = `${window.location.origin}/?invite=${inv.token}`;
       const ok = await copyToClipboard(url);
-      setMessage(
-        ok ? '초대 링크를 생성하고 클립보드에 복사했습니다.' : '초대 링크를 생성했습니다.',
-      );
+      setMessage(ok ? t('admin.inviteCopiedMsg') : t('admin.inviteCreatedMsg'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '초대 링크 생성 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
-  const handleDeleteInvite = async (inviteID: string) => {
-    setError('');
+  const handleDeleteInvite = async (id: string) => {
     try {
-      await api.adminDeleteInvite(inviteID);
-      setInvites((prev) => prev.filter((i) => i.id !== inviteID));
+      await api.adminDeleteInvite(id);
+      setInvites((prev) => prev.filter((item) => item.id !== id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '초대 링크 삭제 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -159,9 +154,9 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
         keep_count: next.keep_count,
       });
       setBackupSettings(updated);
-      setMessage('자동 백업 설정을 저장했습니다.');
+      setMessage(t('admin.backupSettingsSaved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '백업 설정 저장 실패');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     }
   };
 
@@ -174,9 +169,9 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       const refreshed = await api.adminListBackups();
       setBackupSettings(refreshed.settings);
       setBackups(refreshed.items);
-      setMessage(`백업 파일(${info.filename})을 생성했습니다.`);
+      setMessage(t('admin.backupDone', { filename: info.filename }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '백업 실행 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     } finally {
       setRunningBackup(false);
     }
@@ -190,9 +185,9 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       const updated = await api.adminUpdateArchivePolicy(archivePolicy);
       setArchivePolicy(updated);
       setAdminUsage((prev) => (prev ? { ...prev, archive_policy: updated } : prev));
-      setMessage('아카이빙 용량 안전장치 설정을 저장했습니다.');
+      setMessage(t('admin.policySavedMsg'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '안전장치 설정 저장 실패');
+      setError(err instanceof Error ? err.message : t('common.saveFailed'));
     } finally {
       setSavingPolicy(false);
     }
@@ -207,10 +202,13 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       const refreshed = await api.adminGetUsage();
       setAdminUsage(refreshed);
       setMessage(
-        `고아 에셋 ${res.removed_files}개 파일(${formatBytes(res.freed_bytes)})을 정리했습니다.`,
+        t('admin.cleanupDone', {
+          files: res.removed_files,
+          size: formatBytes(res.freed_bytes),
+        }),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : '고아 에셋 정리 실패');
+      setError(err instanceof Error ? err.message : t('common.requestFailed'));
     } finally {
       setCleaningAssets(false);
     }
@@ -225,12 +223,10 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
           className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          <span>북마크로 돌아가기</span>
+          <span>{t('common.backToBookmarks')}</span>
         </button>
-        <h1 className="text-xl font-bold text-slate-900">관리자 설정</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          회원가입 정책, 사용자 관리 및 초대 링크 발급을 관리합니다.
-        </p>
+        <h1 className="text-xl font-bold text-slate-900">{t('admin.title')}</h1>
+        <p className="mt-1 text-sm text-slate-500">{t('admin.subtitle')}</p>
       </div>
 
       {message && (
@@ -243,23 +239,20 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       {/* Registration Policy */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="text-sm font-semibold text-slate-900">신규 회원가입 허용</div>
-            <p className="mt-0.5 text-xs text-slate-500">
-              비활성화하면 로그인 화면의 공개 회원가입이 차단되고 관리자 초대 링크로만 가입할 수
-              있습니다.
-            </p>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-slate-900">{t('admin.regTitle')}</div>
+            <p className="mt-0.5 text-xs text-slate-500">{t('admin.regDesc')}</p>
           </div>
           <button
             type="button"
             onClick={() => void handleToggleRegistration()}
-            className={`rounded-lg px-4 py-2 text-xs font-semibold ${
+            className={`shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-xs font-semibold ${
               registrationEnabled
                 ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                 : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
             }`}
           >
-            {registrationEnabled ? '허용 중' : '비활성화됨'}
+            {registrationEnabled ? t('admin.regEnabled') : t('admin.regDisabled')}
           </button>
         </div>
       </section>
@@ -267,63 +260,64 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       {/* Server Usage & Archive Policy */}
       <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <HardDrive className="h-4 w-4 text-sky-600" />
-              <span>시스템 사용량 및 아카이빙 안전장치</span>
+              <HardDrive className="h-4 w-4 shrink-0 text-sky-600" />
+              <span>{t('admin.usageTitle')}</span>
             </div>
-            <p className="mt-0.5 text-xs text-slate-500">
-              전체 DB·에셋·백업 디스크 사용량과 클리핑 이미지/북마크 용량 상한을 관리합니다.
-            </p>
+            <p className="mt-0.5 text-xs text-slate-500">{t('admin.usageDesc')}</p>
           </div>
           <button
             type="button"
             disabled={cleaningAssets}
             onClick={() => void handleCleanupOrphanAssets()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            <span>{cleaningAssets ? '정리 중...' : '고아 에셋 정리'}</span>
+            <span>{cleaningAssets ? t('admin.cleaningAssets') : t('admin.cleanupAssets')}</span>
           </button>
         </div>
 
         {adminUsage && (
-          <div className="grid gap-3 sm:grid-cols-4">
-            <div className="rounded-xl bg-slate-50 p-3.5">
-              <div className="text-[11px] text-slate-500">전체 데이터</div>
-              <div className="mt-1 text-lg font-bold text-slate-900">
-                {adminUsage.total_bookmarks.toLocaleString()} 북마크
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="min-w-0 rounded-xl bg-slate-50 p-3.5">
+              <div className="text-[11px] text-slate-500">{t('admin.statAllData')}</div>
+              <div className="mt-1 truncate text-lg font-bold text-slate-900">
+                {t('admin.statBookmarks', { count: adminUsage.total_bookmarks.toLocaleString() })}
               </div>
               <div className="mt-0.5 text-[11px] text-slate-400">
-                사용자 {adminUsage.total_users} · 소속 {adminUsage.total_workspaces} · 태그{' '}
-                {adminUsage.total_tags}
+                {t('admin.statAllSub', {
+                  users: adminUsage.total_users,
+                  workspaces: adminUsage.total_workspaces,
+                  tags: adminUsage.total_tags,
+                })}
               </div>
             </div>
-            <div className="rounded-xl bg-slate-50 p-3.5">
+            <div className="min-w-0 rounded-xl bg-slate-50 p-3.5">
               <div className="text-[11px] text-slate-500">SQLite DB</div>
-              <div className="mt-1 text-lg font-bold text-slate-900">
+              <div className="mt-1 truncate text-lg font-bold text-slate-900">
                 {formatBytes(adminUsage.db_size_bytes)}
               </div>
               <div className="mt-0.5 text-[11px] text-slate-400">
-                아카이빙 {adminUsage.total_archived.toLocaleString()}건 포함
+                {t('admin.statDbSub', { count: adminUsage.total_archived.toLocaleString() })}
               </div>
             </div>
-            <div className="rounded-xl bg-slate-50 p-3.5">
-              <div className="text-[11px] text-slate-500">아카이빙 에셋 (/data/assets)</div>
-              <div className="mt-1 text-lg font-bold text-sky-700">
+            <div className="min-w-0 rounded-xl bg-slate-50 p-3.5">
+              <div className="text-[11px] text-slate-500">{t('admin.statAssets')}</div>
+              <div className="mt-1 truncate text-lg font-bold text-sky-700">
                 {formatBytes(adminUsage.assets_size_bytes)}
               </div>
               <div className="mt-0.5 text-[11px] text-slate-400">
-                {adminUsage.assets_file_count.toLocaleString()}개 파일
+                {t('admin.fileCount', { count: adminUsage.assets_file_count.toLocaleString() })}
               </div>
             </div>
-            <div className="rounded-xl bg-slate-50 p-3.5">
-              <div className="text-[11px] text-slate-500">백업 (/data/backups)</div>
-              <div className="mt-1 text-lg font-bold text-slate-900">
+            <div className="min-w-0 rounded-xl bg-slate-50 p-3.5">
+              <div className="text-[11px] text-slate-500">{t('admin.statBackups')}</div>
+              <div className="mt-1 truncate text-lg font-bold text-slate-900">
                 {formatBytes(adminUsage.backups_size_bytes)}
               </div>
               <div className="mt-0.5 text-[11px] text-slate-400">
-                {adminUsage.backups_file_count}개 파일
+                {t('admin.fileCount', { count: adminUsage.backups_file_count })}
               </div>
             </div>
           </div>
@@ -339,20 +333,20 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                   setArchivePolicy((prev) => ({ ...prev, limit_enabled: e.target.checked }))
                 }
               />
-              <span>아카이빙 용량·파일 크기 안전장치 활성화 (기본: 10MB / 30MB)</span>
+              <span>{t('admin.policyEnable')}</span>
             </label>
             <button
               type="button"
               disabled={savingPolicy}
               onClick={() => void handleSaveArchivePolicy()}
-              className="rounded-lg bg-sky-600 px-3.5 py-1.5 font-medium text-white hover:bg-sky-700 disabled:opacity-60"
+              className="shrink-0 whitespace-nowrap rounded-lg bg-sky-600 px-3.5 py-1.5 font-medium text-white hover:bg-sky-700 disabled:opacity-60"
             >
-              {savingPolicy ? '저장 중...' : '안전장치 설정 저장'}
+              {savingPolicy ? t('common.saving') : t('admin.policySave')}
             </button>
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-slate-600">이미지 1개 최대 크기 (MB)</span>
+              <span className="mb-1 block text-slate-600">{t('admin.policyMaxAsset')}</span>
               <input
                 type="number"
                 min={1}
@@ -369,7 +363,7 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-slate-600">북마크 1건 총 에셋 제한 (MB)</span>
+              <span className="mb-1 block text-slate-600">{t('admin.policyMaxBookmark')}</span>
               <input
                 type="number"
                 min={1}
@@ -390,42 +384,40 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       </section>
 
       {/* Invite Links */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Link2 className="h-4 w-4 text-sky-600" />
+            <Link2 className="h-4 w-4 shrink-0 text-sky-600" />
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">사용자 초대 링크</h2>
-              <p className="text-xs text-slate-500">
-                1회용 초대 링크를 생성해 가족이나 지인을 초대할 수 있습니다.
-              </p>
+              <h2 className="text-sm font-semibold text-slate-900">{t('admin.invitesTitle')}</h2>
+              <p className="text-xs text-slate-500">{t('admin.invitesDesc')}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={expiresHours}
               onChange={(e) => setExpiresHours(Number(e.target.value))}
               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
             >
-              <option value={24}>24시간 유효</option>
-              <option value={72}>3일 유효</option>
-              <option value={168}>7일 유효</option>
+              <option value={24}>{t('admin.expires24h')}</option>
+              <option value={72}>{t('admin.expires3d')}</option>
+              <option value={168}>{t('admin.expires7d')}</option>
             </select>
             <button
               type="button"
               onClick={() => void handleCreateInvite()}
-              className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
             >
               <Plus className="h-3.5 w-3.5" />
-              <span>초대 링크 생성</span>
+              <span>{t('admin.createInvite')}</span>
             </button>
           </div>
         </div>
 
         <div className="space-y-2 text-xs">
           {invites.length === 0 ? (
-            <p className="text-slate-400">생성된 초대 링크가 없습니다.</p>
+            <p className="text-slate-400">{t('admin.noInvites')}</p>
           ) : (
             invites.map((inv) => {
               const inviteUrl = `${window.location.origin}/?invite=${inv.token}`;
@@ -440,10 +432,12 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                     <div className="truncate font-mono text-slate-700">{inviteUrl}</div>
                     <div className="mt-0.5 text-[11px] text-slate-400">
                       {isUsed
-                        ? `사용됨 (${inv.used_by_email || inv.used_by})`
+                        ? t('admin.inviteUsed', { email: inv.used_by_email || inv.used_by || '' })
                         : isExpired
-                          ? '만료됨'
-                          : `만료: ${inv.expires_at.slice(0, 16).replace('T', ' ')} UTC`}
+                          ? t('admin.inviteExpired')
+                          : t('admin.inviteExpires', {
+                              date: inv.expires_at.slice(0, 16).replace('T', ' '),
+                            })}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -452,19 +446,19 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                         type="button"
                         onClick={async () => {
                           const ok = await copyToClipboard(inviteUrl);
-                          if (ok) setMessage('초대 링크를 복사했습니다.');
+                          if (ok) setMessage(t('admin.inviteCopied'));
                         }}
                         className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1 font-medium text-sky-600 shadow-2xs hover:bg-sky-50"
                       >
                         <Copy className="h-3 w-3" />
-                        복사
+                        {t('common.copy')}
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={() => void handleDeleteInvite(inv.id)}
-                      title="초대 링크 삭제"
-                      aria-label="초대 링크 삭제"
+                      title={t('admin.deleteInvite')}
+                      aria-label={t('admin.deleteInvite')}
                       className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-rose-600"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -478,11 +472,11 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
       </section>
 
       {/* Users Management */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-indigo-600" />
           <h2 className="text-sm font-semibold text-slate-900">
-            사용자 관리 ({users.length}명)
+            {t('admin.usersTitle', { count: users.length })}
           </h2>
         </div>
 
@@ -490,12 +484,24 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-3.5 py-2.5 font-semibold">닉네임</th>
-                <th className="px-3.5 py-2.5 font-semibold">이메일</th>
-                <th className="px-3.5 py-2.5 font-semibold">권한</th>
-                <th className="px-3.5 py-2.5 font-semibold">2FA</th>
-                <th className="px-3.5 py-2.5 font-semibold">가입일</th>
-                <th className="px-3.5 py-2.5 text-right font-semibold">관리</th>
+                <th className="whitespace-nowrap px-3.5 py-2.5 font-semibold">
+                  {t('admin.colName')}
+                </th>
+                <th className="whitespace-nowrap px-3.5 py-2.5 font-semibold">
+                  {t('admin.colEmail')}
+                </th>
+                <th className="whitespace-nowrap px-3.5 py-2.5 font-semibold">
+                  {t('admin.colRole')}
+                </th>
+                <th className="whitespace-nowrap px-3.5 py-2.5 font-semibold">
+                  {t('admin.col2fa')}
+                </th>
+                <th className="whitespace-nowrap px-3.5 py-2.5 font-semibold">
+                  {t('admin.colJoined')}
+                </th>
+                <th className="whitespace-nowrap px-3.5 py-2.5 text-right font-semibold">
+                  {t('admin.colActions')}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -503,16 +509,16 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                 const isSelf = u.id === currentUser.id;
                 return (
                   <tr key={u.id} className="hover:bg-slate-50">
-                    <td className="px-3.5 py-2.5 font-medium text-slate-900">
+                    <td className="whitespace-nowrap px-3.5 py-2.5 font-medium text-slate-900">
                       {u.name}{' '}
                       {isSelf && (
                         <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700">
-                          나
+                          {t('admin.selfBadge')}
                         </span>
                       )}
                     </td>
-                    <td className="px-3.5 py-2.5 text-slate-600">{u.email}</td>
-                    <td className="px-3.5 py-2.5">
+                    <td className="whitespace-nowrap px-3.5 py-2.5 text-slate-600">{u.email}</td>
+                    <td className="whitespace-nowrap px-3.5 py-2.5">
                       <span
                         className={`rounded px-2 py-0.5 font-medium ${
                           u.is_admin
@@ -520,30 +526,32 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                             : 'bg-slate-100 text-slate-600'
                         }`}
                       >
-                        {u.is_admin ? '관리자' : '일반'}
+                        {u.is_admin ? t('admin.roleAdmin') : t('admin.roleUser')}
                       </span>
                     </td>
-                    <td className="px-3.5 py-2.5 text-slate-500">
-                      {u.totp_enabled ? '사용 중' : '미사용'}
+                    <td className="whitespace-nowrap px-3.5 py-2.5 text-slate-500">
+                      {u.totp_enabled ? t('settings.twoFactorOn') : t('settings.twoFactorOff')}
                     </td>
-                    <td className="px-3.5 py-2.5 text-slate-400">{u.created_at.slice(0, 10)}</td>
-                    <td className="px-3.5 py-2.5 text-right">
+                    <td className="whitespace-nowrap px-3.5 py-2.5 text-slate-400">
+                      {u.created_at.slice(0, 10)}
+                    </td>
+                    <td className="whitespace-nowrap px-3.5 py-2.5 text-right">
                       <div className="inline-flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => void handleToggleUserAdmin(u)}
-                          title={u.is_admin ? '관리자 해제' : '관리자 지정'}
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                          title={u.is_admin ? t('admin.revokeAdmin') : t('admin.makeAdmin')}
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
                         >
                           {u.is_admin ? (
                             <>
                               <ShieldOff className="h-3 w-3" />
-                              <span>권한 해제</span>
+                              <span>{t('admin.revokeAdmin')}</span>
                             </>
                           ) : (
                             <>
                               <Shield className="h-3 w-3 text-indigo-600" />
-                              <span>관리자 지정</span>
+                              <span>{t('admin.makeAdmin')}</span>
                             </>
                           )}
                         </button>
@@ -551,7 +559,7 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                           <button
                             type="button"
                             onClick={() => setDeleteTargetUser(u)}
-                            title="사용자 삭제"
+                            title={t('admin.deleteUser')}
                             className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -567,32 +575,29 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
         </div>
 
         <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <UserCheck className="h-3.5 w-3.5" />
-          <span>최소 1명의 관리자는 항상 유지됩니다.</span>
+          <UserCheck className="h-3.5 w-3.5 shrink-0" />
+          <span>{t('admin.minAdminHint')}</span>
         </div>
       </section>
 
       {/* Auto Backups */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-emerald-600" />
+            <Database className="h-4 w-4 shrink-0 text-emerald-600" />
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">자동 데이터베이스 백업</h2>
-              <p className="text-xs text-slate-500">
-                서버의 SQLite DB 스냅샷을 <code className="text-slate-700">/data/backups</code>에
-                자동으로 저장하고 보관 개수에 따라 정리합니다.
-              </p>
+              <h2 className="text-sm font-semibold text-slate-900">{t('admin.backupsTitle')}</h2>
+              <p className="text-xs text-slate-500">{t('admin.backupsDesc')}</p>
             </div>
           </div>
           <button
             type="button"
             disabled={runningBackup}
             onClick={() => void handleRunBackupNow()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             <Play className="h-3.5 w-3.5" />
-            <span>{runningBackup ? '백업 중...' : '지금 백업 실행'}</span>
+            <span>{runningBackup ? t('admin.runningBackup') : t('admin.runBackup')}</span>
           </button>
         </div>
 
@@ -605,11 +610,11 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                 void handleSaveBackupSettings({ ...backupSettings, enabled: e.target.checked })
               }
             />
-            <span>자동 백업 활성화</span>
+            <span>{t('admin.backupEnable')}</span>
           </label>
 
           <label className="flex items-center gap-2 text-slate-600">
-            <span className="shrink-0">백업 주기</span>
+            <span className="shrink-0">{t('admin.backupInterval')}</span>
             <select
               value={backupSettings.interval_hours}
               onChange={(e) =>
@@ -620,15 +625,15 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
               }
               className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800"
             >
-              <option value={6}>6시간마다</option>
-              <option value={12}>12시간마다</option>
-              <option value={24}>24시간(매일)</option>
-              <option value={168}>7일(매주)</option>
+              <option value={6}>{t('admin.interval6h')}</option>
+              <option value={12}>{t('admin.interval12h')}</option>
+              <option value={24}>{t('admin.interval24h')}</option>
+              <option value={168}>{t('admin.interval168h')}</option>
             </select>
           </label>
 
           <label className="flex items-center gap-2 text-slate-600">
-            <span className="shrink-0">최대 보관</span>
+            <span className="shrink-0">{t('admin.backupKeep')}</span>
             <select
               value={backupSettings.keep_count}
               onChange={(e) =>
@@ -639,23 +644,25 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
               }
               className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800"
             >
-              <option value={3}>최근 3개</option>
-              <option value={7}>최근 7개</option>
-              <option value={14}>최근 14개</option>
-              <option value={30}>최근 30개</option>
+              <option value={3}>{t('admin.keepCount', { count: 3 })}</option>
+              <option value={7}>{t('admin.keepCount', { count: 7 })}</option>
+              <option value={14}>{t('admin.keepCount', { count: 14 })}</option>
+              <option value={30}>{t('admin.keepCount', { count: 30 })}</option>
             </select>
           </label>
         </div>
 
         {backupSettings.last_run_at && (
           <p className="text-[11px] text-slate-400">
-            최근 백업 시각: {new Date(backupSettings.last_run_at).toLocaleString('ko-KR')}
+            {t('admin.lastBackupAt', {
+              date: new Date(backupSettings.last_run_at).toLocaleString(dateLocale),
+            })}
           </p>
         )}
 
         <div className="space-y-2 text-xs">
           {backups.length === 0 ? (
-            <p className="text-slate-400">저장된 백업 파일이 없습니다.</p>
+            <p className="text-slate-400">{t('admin.noBackups')}</p>
           ) : (
             backups.map((b) => (
               <div
@@ -669,7 +676,7 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                       {b.filename}
                     </div>
                     <div className="text-[11px] text-slate-400">
-                      {formatBytes(b.size_bytes)} · {new Date(b.created_at).toLocaleString('ko-KR')}
+                      {formatBytes(b.size_bytes)} · {new Date(b.created_at).toLocaleString(dateLocale)}
                     </div>
                   </div>
                 </div>
@@ -680,13 +687,13 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                     className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-100"
                   >
                     <Download className="h-3 w-3" />
-                    <span>다운로드</span>
+                    <span>{t('admin.download')}</span>
                   </a>
                   <button
                     type="button"
                     onClick={() => setDeleteTargetBackup(b)}
-                    title="백업 파일 삭제"
-                    aria-label="백업 파일 삭제"
+                    title={t('admin.deleteBackupTitle')}
+                    aria-label={t('admin.deleteBackupTitle')}
                     className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-rose-600"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -700,28 +707,31 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
 
       {deleteTargetBackup && (
         <ConfirmModal
-          title="백업 파일 삭제"
-          message={`"${deleteTargetBackup.filename}" 백업 파일을 삭제할까요?`}
-          confirmLabel="삭제"
+          title={t('admin.deleteBackupTitle')}
+          message={t('admin.deleteBackupMsg', { filename: deleteTargetBackup.filename })}
+          confirmLabel={t('common.delete')}
           onClose={() => setDeleteTargetBackup(null)}
           onConfirm={async () => {
             await api.adminDeleteBackup(deleteTargetBackup.filename);
             setBackups((prev) => prev.filter((item) => item.filename !== deleteTargetBackup.filename));
-            setMessage(`${deleteTargetBackup.filename} 백업을 삭제했습니다.`);
+            setMessage(t('admin.backupDeletedMsg', { filename: deleteTargetBackup.filename }));
           }}
         />
       )}
 
       {deleteTargetUser && (
         <ConfirmModal
-          title="사용자 삭제"
-          message={`"${deleteTargetUser.name} (${deleteTargetUser.email})" 계정을 삭제할까요? 이 사용자가 소유한 개인 소속과 북마크도 함께 삭제됩니다.`}
-          confirmLabel="삭제"
+          title={t('admin.deleteUser')}
+          message={t('admin.deleteUserMsg', {
+            name: deleteTargetUser.name,
+            email: deleteTargetUser.email,
+          })}
+          confirmLabel={t('common.delete')}
           onClose={() => setDeleteTargetUser(null)}
           onConfirm={async () => {
             await api.adminDeleteUser(deleteTargetUser.id);
             setUsers((prev) => prev.filter((item) => item.id !== deleteTargetUser.id));
-            setMessage(`${deleteTargetUser.email} 계정을 삭제했습니다.`);
+            setMessage(t('admin.userDeletedMsg', { email: deleteTargetUser.email }));
           }}
         />
       )}

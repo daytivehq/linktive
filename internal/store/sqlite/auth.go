@@ -119,7 +119,7 @@ func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash, inv
 
 	ws := domain.Workspace{
 		ID:        newID(),
-		Name:      "개인 공간",
+		Name:      "Personal",
 		Type:      domain.WorkspacePersonal,
 		OwnerID:   user.ID,
 		Role:      domain.RoleOwner,

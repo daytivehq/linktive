@@ -1,3 +1,5 @@
+import { normalizeLocale, type LocaleCode } from '../i18n';
+
 export type ViewMode = 'list' | 'card';
 
 export type SortOrder = 'relevance' | 'newest' | 'oldest' | 'title';
@@ -20,6 +22,8 @@ export interface VisibleFields {
 }
 
 export interface UserSettings {
+  language: LocaleCode;
+  default_workspace_id: string;
   click_action: ClickAction;
   view_mode: ViewMode;
   include_subcollections: boolean;
@@ -31,6 +35,8 @@ export interface UserSettings {
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
+  language: 'en',
+  default_workspace_id: '',
   click_action: 'new_tab',
   view_mode: 'list',
   include_subcollections: false,
@@ -300,6 +306,9 @@ export function parseUserSettings(raw?: string): UserSettings {
   try {
     const parsed = JSON.parse(raw) as Partial<UserSettings>;
     return {
+      language: normalizeLocale(parsed.language),
+      default_workspace_id:
+        typeof parsed.default_workspace_id === 'string' ? parsed.default_workspace_id : '',
       click_action: parsed.click_action ?? DEFAULT_USER_SETTINGS.click_action,
       view_mode: parsed.view_mode ?? DEFAULT_USER_SETTINGS.view_mode,
       include_subcollections:
