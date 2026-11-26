@@ -77,8 +77,14 @@ Works on Chromium-based browsers such as Chrome and Edge.
 
 ---
 
+## Fetching home network links
+
+Private URLs can be saved as bookmarks. Set `LINKTIVE_ALLOW_PRIVATE_NETWORKS=true` in the Compose `.env` file if the server should fetch metadata, archives, assets, and link status from your home network. The default is `false`. Enabling this also allows pages requested by shared users to reach the server’s private network.
+
 ## Backups & Storage
 
 - **Persistent volume (`./data`)**: Stores the SQLite database, `/data/assets` (archived images & CSS), and `/data/backups` (automatic snapshots).
 - **Automatic backups**: Configure interval, retention count, or trigger/download manual backups under **Admin Console → Automatic Database Backups**.
 - **Storage & exports**: Monitor space usage, clean up orphan assets, and export JSON/HTML/CSV archives from **Settings** and **Admin Console**.
+
+For a full restore point, stop the service and copy the entire `./data` directory. Automatic backups contain SQLite data. Archived images and CSS live in `assets`. Restore the database and files from the same point in time.

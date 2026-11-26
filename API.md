@@ -12,6 +12,8 @@ Generate a `lkt_...` token under **Settings → API Keys** in the web UI, then s
 Authorization: Bearer lkt_YOUR_API_KEY
 ```
 
+Password changes, two-factor authentication, API key management, and admin endpoints require a signed-in web session. Bearer tokens receive `403` on those routes.
+
 ---
 
 ## 2. Endpoints
@@ -46,7 +48,7 @@ Authorization: Bearer lkt_YOUR_API_KEY
 - `POST /api/v1/workspaces/{wsID}/bookmarks`
   - `{"url": "https://example.com", "collection_id": null, "tags": ["dev"], "allow_duplicate": false, "clip_now": false}`
   - Leave `title` / `description` empty to auto-fetch metadata and favicon.
-  - Duplicate normalized URLs return `409 Conflict` with the `existing` bookmark.
+  - Duplicate normalized URLs return `409 Conflict`. The response includes `existing` only when the caller can view that bookmark.
 - `GET /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Get bookmark
 - `PATCH /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Update bookmark or move to `target_workspace_id`
 - `DELETE /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Delete bookmark and its archived copy/assets
@@ -103,7 +105,7 @@ curl -sS -X POST "http://localhost:18080/api/v1/workspaces/<WS_ID>/bookmarks" \
   -H "Content-Type: application/json" \
   -d '{"url":"example.com"}'
 
-# Export full JSON backup
+# Export workspace bookmarks and collections
 curl -sS "http://localhost:18080/api/v1/workspaces/<WS_ID>/export?format=json" \
   -H "Authorization: Bearer lkt_YOUR_API_KEY" -o backup.json
 ```

@@ -12,6 +12,8 @@
 Authorization: Bearer lkt_YOUR_API_KEY
 ```
 
+비밀번호와 2단계 인증 변경, API 키 관리, 관리자 기능은 로그인한 웹 세션이 필요합니다. 이 경로에 Bearer 키를 보내면 `403`을 반환합니다.
+
 ---
 
 ## 2. 주요 엔드포인트
@@ -46,7 +48,7 @@ Authorization: Bearer lkt_YOUR_API_KEY
 - `POST /api/v1/workspaces/{wsID}/bookmarks`
   - `{"url": "https://example.com", "collection_id": null, "tags": ["개발"], "allow_duplicate": false, "clip_now": false}`
   - `title`·`description`을 비워두면 대상 페이지에서 제목·설명·파비콘을 자동 수집합니다.
-  - 동일 정규화 URL이 이미 있으면 `409 Conflict`와 함께 `existing` 북마크를 반환합니다.
+  - 중복 URL은 `409 Conflict`를 반환합니다. 열람 권한이 있는 경우에만 `existing`에 기존 북마크를 포함합니다.
 - `GET /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 단일 북마크 조회
 - `PATCH /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 북마크 수정 및 소속 이동(`target_workspace_id`)
 - `DELETE /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 북마크 삭제 (연결된 아카이빙 본문·로컬 이미지도 함께 삭제)
@@ -103,7 +105,7 @@ curl -sS -X POST "http://localhost:18080/api/v1/workspaces/<WS_ID>/bookmarks" \
   -H "Content-Type: application/json" \
   -d '{"url":"naver.com"}'
 
-# JSON 전체 백업 저장
+# 소속의 북마크·컬렉션을 JSON으로 저장
 curl -sS "http://localhost:18080/api/v1/workspaces/<WS_ID>/export?format=json" \
   -H "Authorization: Bearer lkt_YOUR_API_KEY" -o backup.json
 ```

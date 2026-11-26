@@ -25,7 +25,7 @@ COPY --from=frontend-builder /web/dist ./internal/webembed/dist
 
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/linktive ./cmd/server
 
-FROM alpine:3.21
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates tzdata su-exec \
     && addgroup -S linktive \
     && adduser -S -G linktive linktive \
