@@ -33,25 +33,26 @@ func (e *DuplicateURLError) Unwrap() error {
 
 // SearchQuery represents parsed search terms and filter operators.
 type SearchQuery struct {
-	ActorID               string
-	WorkspaceID           string
-	CollectionID          *string
-	IncludeSubcollections bool
-	Raw                   string
-	Terms                 []string
-	IncludeTags           []string
-	ExcludeTags           []string
-	Domains               []string
-	Collection            string
-	DateExact             string
-	DateAfter             string
-	DateBefore            string
-	OnlyFavorite          *bool
-	LinkStatus            *domain.LinkStatus
-	IncludeArchiveContent bool
-	Sort                  string // newest, oldest, title
-	Limit                 int
-	Offset                int
+	ActorID                string
+	WorkspaceID            string
+	CollectionID           *string
+	IncludeSubcollections  bool
+	SharedCollectionAccess bool
+	Raw                    string
+	Terms                  []string
+	IncludeTags            []string
+	ExcludeTags            []string
+	Domains                []string
+	Collection             string
+	DateExact              string
+	DateAfter              string
+	DateBefore             string
+	OnlyFavorite           *bool
+	LinkStatus             *domain.LinkStatus
+	IncludeArchiveContent  bool
+	Sort                   string // newest, oldest, title
+	Limit                  int
+	Offset                 int
 }
 
 // SearchResult wraps matched bookmarks with total hit count.
@@ -154,8 +155,8 @@ type Store interface {
 	GetUserByEmail(ctx context.Context, email string) (domain.User, error)
 	GetUserByID(ctx context.Context, id string) (domain.User, error)
 	UpdateUserProfile(ctx context.Context, userID, email, name string) (domain.User, error)
-	UpdateUserPassword(ctx context.Context, userID, passwordHash,keepSession string) error
-	EnableUserTOTP(ctx context.Context, userID,secret string) (domain.User, error)
+	UpdateUserPassword(ctx context.Context, userID, passwordHash, keepSession string) error
+	EnableUserTOTP(ctx context.Context, userID, secret string) (domain.User, error)
 	DisableUserTOTP(ctx context.Context, userID string) (domain.User, error)
 	UpdateUserSettings(ctx context.Context, userID, settingsJSON string) (domain.User, error)
 	CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (domain.Session, error)
@@ -229,7 +230,7 @@ type Store interface {
 	GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) (domain.BookmarkArchive, error)
 	DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmarkID, actorID string) error
 	ClearWorkspaceArchives(ctx context.Context, workspaceID, actorID string) ([]string, error)
-	ArchiveRevision(ctx context.Context, workspaceID, bookmarkID string) (string,error)
+	ArchiveRevision(ctx context.Context, workspaceID, bookmarkID string) (string, error)
 	ArchiveExists(ctx context.Context, workspaceID, bookmarkID string) (bool, error)
 	GetArchivePolicy(ctx context.Context) (domain.ArchivePolicy, error)
 	SaveArchivePolicy(ctx context.Context, policy domain.ArchivePolicy) error

@@ -367,6 +367,13 @@ func (s *Store) DeleteCollectionShare(ctx context.Context, workspaceID, collecti
 	return nil
 }
 
+const collectionShareTarget = `(
+			(cs.target_type = 'user' AND cs.target_id = ?)
+			OR (cs.target_type = 'workspace' AND cs.target_id IN (
+				SELECT workspace_id FROM workspace_members WHERE user_id = ?
+			))
+		)`
+
 // ListSharedCollectionsForUser returns collections shared directly with the user or their workspaces.
 func (s *Store) ListSharedCollectionsForUser(ctx context.Context, userID string) ([]domain.SharedCollectionView, error) {
 	rows, err := s.db.QueryContext(ctx, `
@@ -380,12 +387,7 @@ func (s *Store) ListSharedCollectionsForUser(ctx context.Context, userID string)
 		JOIN workspaces src_ws ON src_ws.id = c.workspace_id
 		JOIN users owner_u ON owner_u.id = src_ws.owner_id
 		LEFT JOIN bookmarks b ON b.collection_id = c.id
-		WHERE (
-			(cs.target_type = 'user' AND cs.target_id = ?)
-			OR (cs.target_type = 'workspace' AND cs.target_id IN (
-				SELECT workspace_id FROM workspace_members WHERE user_id = ?
-			))
-		)
+		WHERE `+collectionShareTarget+`
 		AND NOT EXISTS (
 			SELECT 1 FROM workspace_members wm WHERE wm.workspace_id = c.workspace_id AND wm.user_id = ?
 		)

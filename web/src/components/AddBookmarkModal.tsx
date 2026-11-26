@@ -21,7 +21,7 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
   useScrollLock();
   useEscapeKey(onClose);
   const [url, setUrl] = useState('');
-  const [duplicateInfo, setDuplicateInfo] = useState<Bookmark | null>(null);
+  const [duplicateInfo, setDuplicateInfo] = useState<{ existing?: Bookmark } | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -42,7 +42,7 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
       onClose();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setDuplicateInfo(err.existing ?? null);
+        setDuplicateInfo({ existing: err.existing });
         setError(t('addBookmark.duplicateError'));
       } else {
         setError(err instanceof Error ? err.message : t('addBookmark.saveFailed'));
@@ -110,12 +110,12 @@ export function AddBookmarkModal({ targetCollection, onClose, onCreate }: AddBoo
               </div>
               {duplicateInfo && (
                 <div className="mt-1.5 space-y-2 text-amber-900">
-                  <div>
+                  {duplicateInfo.existing && <div>
                     {t('addBookmark.existingBookmark', {
-                      title: duplicateInfo.title,
-                      domain: duplicateInfo.domain,
+                      title: duplicateInfo.existing.title,
+                      domain: duplicateInfo.existing.domain,
                     })}
-                  </div>
+                  </div>}
                   <button
                     type="button"
                     disabled={saving}

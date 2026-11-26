@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bookmark as BookmarkIcon,
@@ -466,7 +466,12 @@ function AuthenticatedShell({
       ? savedFilters.find((f) => f.id === routeScope.filterId)
       : undefined;
 
+  const sidebarWorkspace = useRef(activeWorkspace.id);
+  const sidebarVersion = useRef(0);
+  useLayoutEffect(() => { sidebarWorkspace.current = activeWorkspace.id; }, [activeWorkspace.id]);
   const refreshSidebar = useCallback(async (wsId: string) => {
+    if (wsId !== sidebarWorkspace.current) return;
+    const version = ++sidebarVersion.current;
     const [colRes, tagRes, statsRes, sharedRes, filterRes] = await Promise.all([
       api.listCollections(wsId),
       api.listTags(wsId),
@@ -474,6 +479,7 @@ function AuthenticatedShell({
       api.listSharedCollections(),
       api.listSavedFilters(wsId),
     ]);
+    if (wsId !== sidebarWorkspace.current || version !== sidebarVersion.current) return;
     setCollections(colRes.items);
     setTags(tagRes.items);
     setStats(statsRes);
@@ -484,7 +490,9 @@ function AuthenticatedShell({
   const requestVersion = useRef(0);
   const loadedCount = useRef(0);
   const [listError, setListError] = useState('');
+  const currentRefresh = useRef<((append?: boolean) => Promise<void>) | null>(null);
   const refreshBookmarks = useCallback(async (append = false) => {
+    if (currentRefresh.current !== refreshBookmarks) return;
     const version = ++requestVersion.current;
     setListError('');
     if (
@@ -578,13 +586,15 @@ function AuthenticatedShell({
     void refreshSidebar(activeWorkspace.id);
   }, [activeWorkspace.id, refreshSidebar]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    currentRefresh.current = refreshBookmarks;
+    setLoadingBookmarks(false);
     loadedCount.current = 0;
     setBookmarks([]);
     setTotalBookmarks(0);
     setActiveSharedCollection(null);
     void refreshBookmarks();
-    return () => { requestVersion.current++; };
+    return () => { currentRefresh.current = null; requestVersion.current++; };
   }, [refreshBookmarks]);
 
   useEffect(() => {

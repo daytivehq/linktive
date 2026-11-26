@@ -739,6 +739,11 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 			args = append(args, *query.CollectionID)
 		}
 	}
+	if query.SharedCollectionAccess && query.IncludeSubcollections {
+		where = append(where, `(EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=b.workspace_id AND wm.user_id=?)
+			OR EXISTS (SELECT 1 FROM collection_shares cs WHERE cs.collection_id=b.collection_id AND `+collectionShareTarget+`))`)
+		args = append(args, query.ActorID, query.ActorID, query.ActorID)
+	}
 	if query.OnlyFavorite != nil && *query.OnlyFavorite {
 		where = append(where, "b.is_favorite = 1")
 	}

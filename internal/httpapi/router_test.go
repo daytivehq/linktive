@@ -242,6 +242,29 @@ func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
 		t.Fatal(rec.Body.String())
 	}
 
+	child := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/collections", map[string]string{"parent_id": col.ID, "name": "child"}, cookies1)
+	var childCol struct{ ID string }
+	if child.Code != 201 || json.Unmarshal(child.Body.Bytes(), &childCol) != nil {
+		t.Fatal(child.Body.String())
+	}
+	addChild := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/bookmarks", map[string]string{"collection_id": childCol.ID, "url": "https://example.com/nested", "title": "nested record", "description": "test"}, cookies1)
+	if addChild.Code != 201 {
+		t.Fatal(addChild.Body.String())
+	}
+	path := "/api/v1/shared-collections/" + col.ID + "/bookmarks?include_children=true"
+	hidden := doJSON(t, handler, http.MethodGet, path, nil, cookies2)
+	if hidden.Code != 200 || strings.Contains(hidden.Body.String(), "nested record") {
+		t.Fatal(hidden.Body.String())
+	}
+	grant := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/collections/"+childCol.ID+"/shares", map[string]string{"target_type": "user", "target_email": "guest@linktive.local", "role": "viewer"}, cookies1)
+	if grant.Code != 201 {
+		t.Fatal(grant.Body.String())
+	}
+	visible := doJSON(t, handler, http.MethodGet, path, nil, cookies2)
+	if visible.Code != 200 || !strings.Contains(visible.Body.String(), "nested record") {
+		t.Fatal(visible.Body.String())
+	}
+
 	// API Key creation + Bearer token access + Export/Import roundtrip.
 	keyRec := doJSON(t, handler, http.MethodPost, "/api/v1/api-keys", map[string]string{"name": "cli"}, cookies1)
 	if keyRec.Code != http.StatusCreated {
@@ -274,7 +297,7 @@ func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
 		"content":         expRec.Body.String(),
 		"skip_duplicates": true,
 	}, cookies1)
-	if impRec.Code != http.StatusOK || !strings.Contains(impRec.Body.String(), `"skipped":3`) {
+	if impRec.Code != http.StatusOK || !strings.Contains(impRec.Body.String(), `"skipped":4`) {
 		t.Fatalf("import duplicate check failed: %d %s", impRec.Code, impRec.Body.String())
 	}
 }

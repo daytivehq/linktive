@@ -312,7 +312,7 @@ func (a *apiHandler) handleListSharedCollectionBookmarks(w http.ResponseWriter, 
 		return
 	}
 	sq := buildSearchQuery(r, access.WorkspaceID)
-	sq.IncludeSubcollections = false
+	sq.SharedCollectionAccess = true
 	sq.CollectionID = &colID
 	res, err := a.store.SearchBookmarks(r.Context(), sq)
 	if err != nil {
