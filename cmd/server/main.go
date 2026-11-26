@@ -36,7 +36,11 @@ func main() {
 
 	backupsDir := filepath.Join(cfg.DataDir, "backups")
 	backupMgr := backup.NewManager(st, backupsDir)
-	go backupMgr.StartScheduler(ctx)
+	if err := st.RecoverInterruptedClips(ctx); err != nil {
+		log.Fatalf("recover interrupted archives: %v", err)
+	}
+	backupDone := make(chan struct{})
+	go func() { defer close(backupDone); backupMgr.StartScheduler(ctx) }()
 
 	clipMgr := clipper.NewManager(st, filepath.Join(cfg.DataDir, "assets"), cfg.DBPath, backupsDir)
 	clipMgr.Start(ctx)
@@ -70,5 +74,8 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("graceful shutdown error: %v", err)
+		_ = srv.Close()
 	}
+	clipMgr.Wait()
+	<-backupDone
 }

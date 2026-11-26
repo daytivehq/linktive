@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -18,6 +21,16 @@ type apiHandler struct {
 	store     store.Store
 	backup    *backup.Manager
 	clipper   *clipper.Manager
+}
+
+func (a *apiHandler) withArchiveFiles(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.clipper != nil {
+			unlock := a.clipper.LockAssets()
+			defer unlock()
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RouterOption configures optional server dependencies for NewRouter.
@@ -78,7 +91,7 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 				adm.Patch("/settings", h.handleAdminUpdateSettings)
 				adm.Get("/users", h.handleAdminListUsers)
 				adm.Patch("/users/{userID}", h.handleAdminUpdateUser)
-				adm.Delete("/users/{userID}", h.handleAdminDeleteUser)
+				adm.With(h.withArchiveFiles).Delete("/users/{userID}", h.handleAdminDeleteUser)
 				adm.Get("/invites", h.handleAdminListInvites)
 				adm.Post("/invites", h.handleAdminCreateInvite)
 				adm.Delete("/invites/{inviteID}", h.handleAdminDeleteInvite)
@@ -89,7 +102,7 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 				adm.Delete("/backups/{filename}", h.handleAdminDeleteBackup)
 				adm.Get("/usage", h.handleAdminGetUsage)
 				adm.Patch("/archive-settings", h.handleAdminUpdateArchiveSettings)
-				adm.Post("/assets/cleanup", h.handleAdminCleanupOrphanAssets)
+				adm.With(h.withArchiveFiles).Post("/assets/cleanup", h.handleAdminCleanupOrphanAssets)
 			})
 
 			authed.With(sessionOnly).Get("/api-keys", h.handleListAPIKeys)
@@ -103,13 +116,13 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 			authed.Get("/shared-collections/{colID}/bookmarks", h.handleListSharedCollectionBookmarks)
 			authed.Post("/shared-collections/{colID}/bookmarks", h.handleCreateSharedCollectionBookmark)
 			authed.Patch("/shared-collections/{colID}/bookmarks/{bmID}", h.handleUpdateSharedCollectionBookmark)
-			authed.Delete("/shared-collections/{colID}/bookmarks/{bmID}", h.handleDeleteSharedCollectionBookmark)
+			authed.With(h.withArchiveFiles).Delete("/shared-collections/{colID}/bookmarks/{bmID}", h.handleDeleteSharedCollectionBookmark)
 			authed.Get("/shared-collections/{colID}/bookmarks/{bmID}/archive", h.handleGetSharedCollectionBookmarkArchive)
 			authed.Get("/shared-collections/{colID}/bookmarks/{bmID}/assets/{filename}", h.handleServeSharedCollectionBookmarkAsset)
 
 			authed.Route("/workspaces/{wsID}", func(ws chi.Router) {
 				ws.Patch("/", h.handleUpdateWorkspace)
-				ws.Delete("/", h.handleDeleteWorkspace)
+				ws.With(h.withArchiveFiles).Delete("/", h.handleDeleteWorkspace)
 				ws.Get("/members", h.handleListWorkspaceMembers)
 				ws.Post("/members", h.handleAddWorkspaceMember)
 				ws.Delete("/members/{userID}", h.handleRemoveWorkspaceMember)
@@ -125,19 +138,19 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 
 				ws.Get("/bookmarks", h.handleListBookmarks)
 				ws.Post("/bookmarks", h.handleCreateBookmark)
-				ws.Post("/bookmarks/bulk", h.handleBulkBookmarks)
+				ws.With(h.withArchiveFiles).Post("/bookmarks/bulk", h.handleBulkBookmarks)
 				ws.Get("/bookmarks/{bmID}", h.handleGetBookmark)
 				ws.Patch("/bookmarks/{bmID}", h.handleUpdateBookmark)
-				ws.Delete("/bookmarks/{bmID}", h.handleDeleteBookmark)
+				ws.With(h.withArchiveFiles).Delete("/bookmarks/{bmID}", h.handleDeleteBookmark)
 				ws.Post("/bookmarks/{bmID}/check-link", h.handleCheckBookmarkLink)
 				ws.Post("/bookmarks/{bmID}/link-status", h.handleSetBookmarkLinkStatus)
 				ws.Get("/bookmarks/{bmID}/archive", h.handleGetBookmarkArchive)
 				ws.Post("/bookmarks/{bmID}/archive", h.handleArchiveBookmark)
-				ws.Delete("/bookmarks/{bmID}/archive", h.handleDeleteBookmarkArchive)
+				ws.With(h.withArchiveFiles).Delete("/bookmarks/{bmID}/archive", h.handleDeleteBookmarkArchive)
 				ws.Get("/bookmarks/{bmID}/assets/{filename}", h.handleServeBookmarkAsset)
 				ws.Get("/bookmarks/{bmID}/export/markdown", h.handleExportBookmarkMarkdown)
 
-				ws.Delete("/archives", h.handleClearWorkspaceArchives)
+				ws.With(h.withArchiveFiles).Delete("/archives", h.handleClearWorkspaceArchives)
 				ws.Get("/usage", h.handleGetWorkspaceUsage)
 
 				ws.Post("/links/check", h.handleCheckWorkspaceLinks)
@@ -205,6 +218,31 @@ func spaHandler(staticFS fs.FS) http.HandlerFunc {
 func decodeJSON(r *http.Request, dst any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
 	return dec.Decode(dst)
+}
+
+// Read the whole bounded payload before decoding so trailing bytes cannot be silently dropped.
+func readUploadJSON(w http.ResponseWriter, r *http.Request, dst any, limit int64, optional bool) bool {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		writeUploadError(w, err)
+		return false
+	}
+	if optional && len(data) == 0 {
+		return true
+	}
+	if len(bytes.TrimSpace(data)) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null")) || json.Unmarshal(data, dst) != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON payload")
+		return false
+	}
+	return true
+}
+func writeUploadError(w http.ResponseWriter, err error) {
+	var large *http.MaxBytesError
+	if errors.As(err, &large) {
+		writeError(w, http.StatusRequestEntityTooLarge, "upload too large")
+		return
+	}
+	writeError(w, http.StatusBadRequest, "invalid upload")
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

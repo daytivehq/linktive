@@ -113,6 +113,11 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 	return tx.Commit()
 }
 
+func (s *Store) RecoverInterruptedClips(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE bookmark_archives SET status='failed',error_message='Clipping interrupted; retry to archive this page.',updated_at=? WHERE status='pending'`, formatTime(time.Now().UTC()))
+	return err
+}
+
 // GetBookmarkArchive loads an archived web page copy for a bookmark within a workspace.
 func (s *Store) GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) (domain.BookmarkArchive, error) {
 	var ar domain.BookmarkArchive

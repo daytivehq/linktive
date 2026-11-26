@@ -118,6 +118,9 @@ func (s *Store) DeleteUser(ctx context.Context, userID string) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE workspace_id = ?`, wsID); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE workspace_id=?`, wsID); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM workspaces WHERE id = ?`, wsID); err != nil {
 			return err
 		}
@@ -132,6 +135,17 @@ func (s *Store) DeleteUser(ctx context.Context, userID string) error {
 		return err
 	}
 
+	// Keep explicitly shared content accessible. Private copies leave with the account.
+	if _, err := tx.ExecContext(ctx, `UPDATE bookmark_archives SET created_by='' WHERE created_by=? AND EXISTS (
+		SELECT 1 FROM users WHERE id=? AND CASE WHEN json_valid(settings_json) THEN json_extract(settings_json,'$.archive_share_scope') END='shared_members')`, userID, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE bookmark_id IN (SELECT bookmark_id FROM bookmark_archives WHERE created_by=?)`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives WHERE created_by=?`, userID); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
 	if err != nil {
 		return err

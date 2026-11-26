@@ -62,6 +62,7 @@ type Manager struct {
 	backupsDir string
 	queue      chan clipJob
 	archiveMu  sync.Mutex
+	workers    sync.WaitGroup
 	httpClient *http.Client
 }
 
@@ -77,6 +78,64 @@ func NewManager(st store.Store, assetsDir, dbPath, backupsDir string) *Manager {
 	}
 }
 
+// LockAssets serializes database changes paired with file publication or removal.
+func (m *Manager) LockAssets() func() { m.archiveMu.Lock(); return m.archiveMu.Unlock }
+
+// CopyBookmarkAssets prepares the destination before committing a move. Both
+// paths remain readable until the database transaction succeeds.
+func (m *Manager) CopyBookmarkAssets(from, to, id string) error {
+	if !safePart(from) || !safePart(to) || !safePart(id) || from == to {
+		return errors.New("invalid archive move")
+	}
+	src, dst := filepath.Join(m.assetsDir, from, id), filepath.Join(m.assetsDir, to, id)
+	entries, err := os.ReadDir(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			return errors.New("unexpected archive file")
+		}
+		old, newPath := filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())
+		// Accommodate copies left by an interrupted attempt.
+		if err := os.Link(old, newPath); err == nil {
+			continue
+		}
+		if err := copyAsset(old, newPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyAsset(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.CreateTemp(filepath.Dir(dst), ".move-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(out.Name())
+	_, err = io.Copy(out, in)
+	closeErr := out.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(out.Name(), dst)
+}
+
 // AssetsDir returns the root directory path where archived assets are stored.
 func (m *Manager) AssetsDir() string {
 	return m.assetsDir
@@ -84,9 +143,12 @@ func (m *Manager) AssetsDir() string {
 
 // Start launches background workers that process auto-clip jobs until ctx is canceled.
 func (m *Manager) Start(ctx context.Context) {
+
 	const workers = 2
 	for i := 0; i < workers; i++ {
+		m.workers.Add(1)
 		go func() {
+			defer m.workers.Done()
 			for {
 				select {
 				case <-ctx.Done():
@@ -100,6 +162,8 @@ func (m *Manager) Start(ctx context.Context) {
 		}()
 	}
 }
+
+func (m *Manager) Wait() { m.workers.Wait() }
 
 // EnqueueClip schedules an asynchronous readable background archive job for a newly created bookmark.
 func (m *Manager) EnqueueClip(ctx context.Context, workspaceID, bookmarkID, createdBy, targetURL string) {

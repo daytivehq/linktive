@@ -102,10 +102,12 @@ func (a *apiHandler) handleImportWorkspace(w http.ResponseWriter, r *http.Reques
 
 	ct := strings.ToLower(r.Header.Get("Content-Type"))
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		if err := r.ParseMultipartForm(16 << 20); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid multipart form")
+		r.Body = http.MaxBytesReader(w, r.Body, 17<<20)
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			writeUploadError(w, err)
 			return
 		}
+		defer r.MultipartForm.RemoveAll()
 		format = r.FormValue("format")
 		skipDuplicates = transfer.ParseBoolDefault(r.FormValue("skip_duplicates"), true)
 		file, _, err := r.FormFile("file")
@@ -114,7 +116,7 @@ func (a *apiHandler) handleImportWorkspace(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		defer func() { _ = file.Close() }()
-		rawBytes, err = io.ReadAll(io.LimitReader(file, 16<<20))
+		rawBytes, err = io.ReadAll(io.LimitReader(file, (16<<20)+1))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "failed to read import file")
 			return
@@ -125,8 +127,7 @@ func (a *apiHandler) handleImportWorkspace(w http.ResponseWriter, r *http.Reques
 			Content        string `json:"content"`
 			SkipDuplicates *bool  `json:"skip_duplicates"`
 		}
-		if err := decodeJSON(r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid import payload")
+		if !readUploadJSON(w, r, &req, 32<<20, false) {
 			return
 		}
 		format = req.Format
@@ -136,6 +137,10 @@ func (a *apiHandler) handleImportWorkspace(w http.ResponseWriter, r *http.Reques
 		rawBytes = []byte(req.Content)
 	}
 
+	if len(rawBytes) > 16<<20 {
+		writeError(w, http.StatusRequestEntityTooLarge, "import file exceeds 16 MiB")
+		return
+	}
 	bundle, detectedFormat, err := transfer.ParseImport(format, rawBytes)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to parse import file: "+err.Error())

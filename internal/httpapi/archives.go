@@ -61,6 +61,23 @@ func (a *apiHandler) canViewArchive(ctx context.Context, actor domain.User, ar d
 	return parseArchiveShareScope(creator) == "shared_members"
 }
 
+func (a *apiHandler) checkArchiveWrite(w http.ResponseWriter, r *http.Request, wsID, bmID string) bool {
+	actor, _ := userFromContext(r.Context())
+	ar, err := a.store.GetBookmarkArchive(r.Context(), wsID, bmID)
+	if errors.Is(err, store.ErrNotFound) {
+		return true
+	}
+	if err != nil {
+		writeError(w, 500, "failed to check archive")
+		return false
+	}
+	if !a.canViewArchive(r.Context(), actor, ar) {
+		archiveForbidden(w, store.ErrPermissionDenied)
+		return false
+	}
+	return true
+}
+
 func archiveForbidden(w http.ResponseWriter, err error) bool {
 	if !errors.Is(err, store.ErrPermissionDenied) {
 		return false
@@ -115,6 +132,9 @@ func (a *apiHandler) handleArchiveBookmark(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if !a.checkArchiveWrite(w, r, wsID, bmID) {
+		return
+	}
 	var req struct {
 		HTML     string `json:"html"`
 		Mode     string `json:"mode"`
@@ -124,7 +144,9 @@ func (a *apiHandler) handleArchiveBookmark(w http.ResponseWriter, r *http.Reques
 		SiteName string `json:"site_name"`
 		Source   string `json:"source"`
 	}
-	_ = decodeJSON(r, &req)
+	if !readUploadJSON(w, r, &req, 16<<20, true) {
+		return
+	}
 
 	mode := strings.TrimSpace(req.Mode)
 	if mode == "" {

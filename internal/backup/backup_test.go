@@ -52,6 +52,15 @@ func TestBackupRunListPruneAndDelete(t *testing.T) {
 		t.Fatalf("stat backup file: %v", err)
 	}
 
+	restored, err := sqlite.Open(ctx, fullPath)
+	if err != nil {
+		t.Fatalf("open backup: %v", err)
+	}
+	settings, err := restored.GetBackupSettings(ctx)
+	restored.Close()
+	if err != nil || !settings.Enabled {
+		t.Fatalf("backup settings missing: %v", err)
+	}
 	if err := mgr.DeleteBackup(items[0].Filename); err != nil {
 		t.Fatalf("DeleteBackup: %v", err)
 	}

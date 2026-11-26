@@ -196,18 +196,37 @@ func (s *Store) UpdateBookmark(ctx context.Context, input store.UpdateBookmarkIn
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, `
+	if movedWorkspace {
+		if err := checkArchiveAccess(ctx, tx, input.WorkspaceID, cur.ID, input.ActorID); err != nil {
+			return domain.Bookmark{}, err
+		}
+		oldPrefix := "/api/v1/workspaces/" + input.WorkspaceID + "/bookmarks/" + cur.ID + "/assets/"
+		newPrefix := "/api/v1/workspaces/" + cur.WorkspaceID + "/bookmarks/" + cur.ID + "/assets/"
+		if _, err := tx.ExecContext(ctx, `UPDATE bookmark_archives SET workspace_id=?,content_html=replace(content_html,?,?),snapshot_html=replace(snapshot_html,?,?) WHERE bookmark_id=? AND workspace_id=?`, cur.WorkspaceID, oldPrefix, newPrefix, oldPrefix, newPrefix, cur.ID, input.WorkspaceID); err != nil {
+			return domain.Bookmark{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE bookmark_archives_fts SET workspace_id=? WHERE bookmark_id=? AND workspace_id=?`, cur.WorkspaceID, cur.ID, input.WorkspaceID); err != nil {
+			return domain.Bookmark{}, err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE bookmarks
 		SET workspace_id = ?, collection_id = ?, url = ?, normalized_url = ?, domain = ?,
 		    title = ?, description = ?, note = ?, favicon_url = ?, thumbnail_url = ?,
 		    is_favorite = ?, compact_text = ?, chosung_text = ?, updated_at = ?
-		WHERE id = ?
+		WHERE id = ? AND workspace_id=?
 	`, cur.WorkspaceID, nullableString(cur.CollectionID), cur.URL, cur.NormalizedURL, cur.Domain,
 		cur.Title, cur.Description, cur.Note, cur.FaviconURL, cur.ThumbnailURL,
-		boolToInt(cur.IsFavorite), compactText, chosungText, nowStr, cur.ID); err != nil {
+		boolToInt(cur.IsFavorite), compactText, chosungText, nowStr, cur.ID, input.WorkspaceID)
+	if err != nil {
 		return domain.Bookmark{}, err
 	}
 
+	if n, err := result.RowsAffected(); err != nil {
+		return domain.Bookmark{}, err
+	} else if n == 0 {
+		return domain.Bookmark{}, store.ErrNotFound
+	}
 	if input.ReplaceTags || movedWorkspace {
 		if err := syncBookmarkTagsTx(ctx, tx, cur.WorkspaceID, cur.ID, cur.Tags, nowStr); err != nil {
 			return domain.Bookmark{}, err

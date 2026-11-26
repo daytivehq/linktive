@@ -143,6 +143,9 @@ func (s *Store) DeleteWorkspace(ctx context.Context, workspaceID string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE workspace_id=?`, workspaceID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE workspace_id = ?`, workspaceID); err != nil {
 		return err
 	}

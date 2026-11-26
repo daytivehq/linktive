@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -726,7 +727,7 @@ func TestBookmarkArchiveSearchPolicyUsageAndCleanup(t *testing.T) {
 
 	rec = doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+wsID+"/members", map[string]string{
 		"email": "member@linktive.local",
-		"role":  "viewer",
+		"role":  "editor",
 	}, ownerCookies)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add workspace member failed: %d %s", rec.Code, rec.Body.String())
@@ -737,6 +738,16 @@ func TestBookmarkArchiveSearchPolicyUsageAndCleanup(t *testing.T) {
 		t.Fatalf("expected 403 for member when owner archive_share_scope is owner_only, got %d %s", rec.Code, rec.Body.String())
 	}
 
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		res := doJSON(t, handler, method, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", nil, memberCookies)
+		if res.Code != http.StatusForbidden {
+			t.Fatal(res.Code, res.Body.String())
+		}
+	}
+	cleared := doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+wsID+"/archives", nil, memberCookies)
+	if cleared.Code != 200 || !strings.Contains(cleared.Body.String(), `"deleted":0`) {
+		t.Fatal(cleared.Body.String())
+	}
 	for _, term := range []string{"고유키워드알파", "알파"} {
 		rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks?q="+url.QueryEscape(term)+"&search_archive=true", nil, memberCookies)
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":0`) {
@@ -753,6 +764,37 @@ func TestBookmarkArchiveSearchPolicyUsageAndCleanup(t *testing.T) {
 	rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks/"+bm.ID+"/archive", nil, memberCookies)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "고유키워드알파") {
 		t.Fatalf("expected 200 for member after owner enabled shared_members, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Move the archive twice. At each destination the image and the search index must work.
+	created := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces", map[string]string{"name": "archive move test"}, ownerCookies)
+	var target struct{ ID string }
+	if created.Code != 201 || json.Unmarshal(created.Body.Bytes(), &target) != nil || target.ID == "" {
+		t.Fatal(created.Body.String())
+	}
+	from := wsID
+	for _, to := range []string{target.ID, wsID} {
+		rec = doJSON(t, handler, http.MethodPatch, "/api/v1/workspaces/"+from+"/bookmarks/"+bm.ID, map[string]string{"target_workspace_id": to}, ownerCookies)
+		if rec.Code != 200 {
+			t.Fatal(rec.Body.String())
+		}
+		ar, err := st.GetBookmarkArchive(ctx, to, bm.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := regexp.MustCompile(`src="(/api/v1/workspaces/[^"]+/assets/[^"]+)"`).FindStringSubmatch(ar.ContentHTML)
+		if len(m) != 2 || !strings.Contains(m[1], to) {
+			t.Fatal(ar.ContentHTML)
+		}
+		asset := doJSON(t, handler, http.MethodGet, m[1], nil, ownerCookies)
+		if asset.Code != 200 || !bytes.Equal(asset.Body.Bytes(), pngBytes) || asset.Header().Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(asset.Header().Get("Content-Security-Policy"), "sandbox") {
+			t.Fatal("moved image or security headers missing")
+		}
+		search := doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+to+"/bookmarks?q="+url.QueryEscape("고유키워드알파")+"&search_archive=true", nil, ownerCookies)
+		if search.Code != 200 || !strings.Contains(search.Body.String(), bm.ID) {
+			t.Fatal(search.Body.String())
+		}
+		from = to
 	}
 
 	// 7. Delete archive.

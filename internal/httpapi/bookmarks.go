@@ -293,7 +293,26 @@ func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	moving := input.TargetWorkspaceID != nil && *input.TargetWorkspaceID != wsID
+	if moving && a.clipper != nil {
+		unlock := a.clipper.LockAssets()
+		defer unlock()
+		if _, err := a.store.GetBookmark(r.Context(), wsID, bmID); err != nil {
+			writeError(w, http.StatusNotFound, "bookmark not found")
+			return
+		}
+		if !a.checkArchiveWrite(w, r, wsID, bmID) {
+			return
+		}
+		if err := a.clipper.CopyBookmarkAssets(wsID, *input.TargetWorkspaceID, bmID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to prepare archive move")
+			return
+		}
+	}
 	updated, err := a.store.UpdateBookmark(r.Context(), input)
+	if archiveForbidden(w, err) {
+		return
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "bookmark not found")
 		return
@@ -305,6 +324,9 @@ func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update bookmark")
 		return
+	}
+	if moving && a.clipper != nil {
+		a.clipper.DeleteBookmarkAssets(wsID, bmID)
 	}
 	writeJSON(w, http.StatusOK, updated)
 }
