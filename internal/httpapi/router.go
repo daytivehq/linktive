@@ -14,9 +14,10 @@ import (
 )
 
 type apiHandler struct {
-	store   store.Store
-	backup  *backup.Manager
-	clipper *clipper.Manager
+	authState authState
+	store     store.Store
+	backup    *backup.Manager
+	clipper   *clipper.Manager
 }
 
 // RouterOption configures optional server dependencies for NewRouter.
@@ -47,7 +48,7 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+
 	r.Use(middleware.Recoverer)
 	r.Use(extensionCORS)
 
@@ -66,13 +67,13 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 			authed.Get("/auth/me", h.handleMe)
 			authed.Patch("/auth/settings", h.handleUpdateSettings)
 			authed.Patch("/auth/profile", h.handleUpdateProfile)
-			authed.Patch("/auth/password", h.handleUpdatePassword)
-			authed.Post("/auth/2fa/setup", h.handle2FASetup)
-			authed.Post("/auth/2fa/enable", h.handle2FAEnable)
-			authed.Post("/auth/2fa/disable", h.handle2FADisable)
+			authed.With(sessionOnly).Patch("/auth/password", h.handleUpdatePassword)
+			authed.With(sessionOnly).Post("/auth/2fa/setup", h.handle2FASetup)
+			authed.With(sessionOnly).Post("/auth/2fa/enable", h.handle2FAEnable)
+			authed.With(sessionOnly).Post("/auth/2fa/disable", h.handle2FADisable)
 
 			authed.Route("/admin", func(adm chi.Router) {
-				adm.Use(h.requireAdmin)
+				adm.Use(sessionOnly, h.requireAdmin)
 				adm.Get("/settings", h.handleAdminGetSettings)
 				adm.Patch("/settings", h.handleAdminUpdateSettings)
 				adm.Get("/users", h.handleAdminListUsers)
@@ -91,9 +92,9 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 				adm.Post("/assets/cleanup", h.handleAdminCleanupOrphanAssets)
 			})
 
-			authed.Get("/api-keys", h.handleListAPIKeys)
-			authed.Post("/api-keys", h.handleCreateAPIKey)
-			authed.Delete("/api-keys/{keyID}", h.handleDeleteAPIKey)
+			authed.With(sessionOnly).Get("/api-keys", h.handleListAPIKeys)
+			authed.With(sessionOnly).Post("/api-keys", h.handleCreateAPIKey)
+			authed.With(sessionOnly).Delete("/api-keys/{keyID}", h.handleDeleteAPIKey)
 
 			authed.Get("/workspaces", h.handleListWorkspaces)
 			authed.Post("/workspaces", h.handleCreateWorkspace)

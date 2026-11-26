@@ -251,6 +251,15 @@ func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
 	}
 	_ = json.Unmarshal(keyRec.Body.Bytes(), &keyResp)
 
+	for _, path := range []string{"/api/v1/admin/users", "/api/v1/api-keys"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+keyResp.Token)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("expected session-only endpoint, got %d", rr.Code)
+		}
+	}
 	expReq := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/"+ws1+"/export?format=json", nil)
 	expReq.Header.Set("Authorization", "Bearer "+keyResp.Token)
 	expRec := httptest.NewRecorder()
@@ -366,7 +375,10 @@ func TestProfile2FAAndAdminFlow(t *testing.T) {
 		t.Fatalf("2fa enable failed: %d %s", rec.Code, rec.Body.String())
 	}
 
-	// Login requires 2FA step.
+	if rec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", nil, memberCookies); rec.Code != 200 {
+		t.Fatal("replacement setup failed")
+	}
+	// Login still accepts the active code while a replacement is pending.
 	rec = doJSON(t, handler, http.MethodPost, "/api/v1/auth/login", map[string]string{
 		"email": "member2@linktive.local", "password": "newpassword456",
 	}, nil)

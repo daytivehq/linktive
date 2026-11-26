@@ -154,9 +154,8 @@ type Store interface {
 	GetUserByEmail(ctx context.Context, email string) (domain.User, error)
 	GetUserByID(ctx context.Context, id string) (domain.User, error)
 	UpdateUserProfile(ctx context.Context, userID, email, name string) (domain.User, error)
-	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
-	SetUserTOTPSecret(ctx context.Context, userID, secret string) error
-	EnableUserTOTP(ctx context.Context, userID string) (domain.User, error)
+	UpdateUserPassword(ctx context.Context, userID, passwordHash,keepSession string) error
+	EnableUserTOTP(ctx context.Context, userID,secret string) (domain.User, error)
 	DisableUserTOTP(ctx context.Context, userID string) (domain.User, error)
 	UpdateUserSettings(ctx context.Context, userID, settingsJSON string) (domain.User, error)
 	CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (domain.Session, error)

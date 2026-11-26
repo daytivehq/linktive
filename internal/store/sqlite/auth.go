@@ -190,8 +190,13 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID, email, name strin
 }
 
 // UpdateUserPassword replaces a user's hashed password.
-func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
-	res, err := s.db.ExecContext(ctx, `
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash, keepSession string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?
 	`, passwordHash, formatTime(time.Now().UTC()), userID)
 	if err != nil {
@@ -200,28 +205,17 @@ func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash str
 	if rows, _ := res.RowsAffected(); rows == 0 {
 		return store.ErrNotFound
 	}
-	return nil
-}
-
-// SetUserTOTPSecret saves a pending TOTP secret before confirmation.
-func (s *Store) SetUserTOTPSecret(ctx context.Context, userID, secret string) error {
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE users SET totp_secret = ?, updated_at = ? WHERE id = ?
-	`, secret, formatTime(time.Now().UTC()), userID)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=? AND token_hash<>?`, userID, keepSession); err != nil {
 		return err
 	}
-	if rows, _ := res.RowsAffected(); rows == 0 {
-		return store.ErrNotFound
-	}
-	return nil
+	return tx.Commit()
 }
 
 // EnableUserTOTP activates 2FA for a user.
-func (s *Store) EnableUserTOTP(ctx context.Context, userID string) (domain.User, error) {
+func (s *Store) EnableUserTOTP(ctx context.Context, userID, secret string) (domain.User, error) {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE users SET totp_enabled = 1, updated_at = ? WHERE id = ?
-	`, formatTime(time.Now().UTC()), userID)
+		UPDATE users SET totp_enabled = 1, totp_secret=?, updated_at = ? WHERE id = ?
+	`, secret, formatTime(time.Now().UTC()), userID)
 	if err != nil {
 		return domain.User{}, err
 	}

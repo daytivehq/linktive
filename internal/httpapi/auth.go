@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -91,6 +92,10 @@ func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Password) > 72 {
+		writeError(w, http.StatusBadRequest, "password must be at most 72 bytes")
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to hash password")
@@ -137,6 +142,16 @@ func (a *apiHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now()
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if !a.authState.allow("ip:"+host, 150, now) || !a.authState.allow("login:"+hashToken(strings.ToLower(strings.TrimSpace(req.Email))), 12, now) {
+		w.Header().Set("Retry-After", "300")
+		writeError(w, http.StatusTooManyRequests, "too many login attempts; try again in five minutes")
+		return
+	}
 	user, err := a.store.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
@@ -267,12 +282,16 @@ func (a *apiHandler) handleUpdatePassword(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
+	if len(req.NewPassword) > 72 {
+		writeError(w, http.StatusBadRequest, "password must be at most 72 bytes")
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to hash password")
 		return
 	}
-	if err := a.store.UpdateUserPassword(r.Context(), user.ID, string(hash)); err != nil {
+	if err := a.store.UpdateUserPassword(r.Context(), user.ID, string(hash), sessionHash(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update password")
 		return
 	}
@@ -286,10 +305,7 @@ func (a *apiHandler) handle2FASetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to generate 2FA secret")
 		return
 	}
-	if err := a.store.SetUserTOTPSecret(r.Context(), user.ID, secret); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save 2FA secret")
-		return
-	}
+	a.authState.begin(user.ID, sessionHash(r), secret)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"secret":      secret,
 		"otpauth_url": authutil.BuildOTPAuthURL("linktive", user.Email, secret),
@@ -305,15 +321,16 @@ func (a *apiHandler) handle2FAEnable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if user.TOTPSecret == "" {
-		writeError(w, http.StatusBadRequest, "2FA setup has not been initiated")
+	if !a.authState.allow("otp:"+user.ID, 12, time.Now()) {
+		writeError(w, http.StatusTooManyRequests, "too many verification attempts")
 		return
 	}
-	if !authutil.VerifyTOTPCode(user.TOTPSecret, req.Code, time.Now().UTC()) {
-		writeError(w, http.StatusBadRequest, "invalid 2FA verification code")
+	secret, ok := a.authState.confirm(user.ID, sessionHash(r), req.Code)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid or expired 2FA setup")
 		return
 	}
-	updated, err := a.store.EnableUserTOTP(r.Context(), user.ID)
+	updated, err := a.store.EnableUserTOTP(r.Context(), user.ID, secret)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enable 2FA")
 		return
@@ -329,6 +346,10 @@ func (a *apiHandler) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !a.authState.allow("otp:"+user.ID, 12, time.Now()) {
+		writeError(w, http.StatusTooManyRequests, "too many verification attempts")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
