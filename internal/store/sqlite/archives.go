@@ -198,6 +198,21 @@ func (s *Store) ClearWorkspaceArchives(ctx context.Context, workspaceID, actorID
 	return ids, tx.Commit()
 }
 
+// ArchiveRevision distinguishes a new archive from a deleted or moved bookmark.
+func (s *Store) ArchiveRevision(ctx context.Context, wsID, bmID string) (string, error) {
+	var revision, archiveWS string
+	err := s.db.QueryRowContext(ctx, `SELECT coalesce(ar.updated_at,''), coalesce(ar.workspace_id,'')
+		FROM bookmarks b LEFT JOIN bookmark_archives ar ON ar.bookmark_id=b.id
+		WHERE b.workspace_id=? AND b.id=?`, wsID, bmID).Scan(&revision, &archiveWS)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", store.ErrNotFound
+	}
+	if err == nil && archiveWS != "" && archiveWS != wsID {
+		return "", store.ErrInvalidParent
+	}
+	return revision, err
+}
+
 // ArchiveExists reports whether a bookmark currently has an archive record in the given workspace.
 func (s *Store) ArchiveExists(ctx context.Context, workspaceID, bookmarkID string) (bool, error) {
 	var cnt int

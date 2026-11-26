@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -154,6 +156,29 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 	if count, _ := clipper.MeasureDir(assetsDir); count != 1 {
 		t.Fatal("last successful image lost")
 	}
+	// A reclip waiting on the network cannot recreate an archive deleted in the meantime.
+	started, finish := make(chan struct{}), make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-finish
+		_, _ = io.WriteString(w, "<article>late response</article>")
+	}))
+	done := make(chan error, 1)
+	go func() { _, err := mgr.ClipURL(ctx, ws.ID, bm.ID, user.ID, slow.URL); done <- err }()
+	<-started
+	err = st.DeleteBookmarkArchive(ctx, ws.ID, bm.ID, user.ID)
+	close(finish)
+	slow.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = <-done; !errors.Is(err, store.ErrAlreadyExists) {
+		t.Fatalf("expected changed archive conflict: %v", err)
+	}
+	if _, err = st.GetBookmarkArchive(ctx, ws.ID, bm.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("archive resurrected")
+	}
+
 	// Deleting bookmark leaves asset dir orphaned until CleanupOrphanAssets cleans it up.
 	if err := st.DeleteBookmark(ctx, ws.ID, bm.ID, user.ID); err != nil {
 		t.Fatalf("DeleteBookmark: %v", err)

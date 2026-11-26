@@ -1,6 +1,7 @@
 package clipper
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -63,6 +64,7 @@ type Manager struct {
 	queue      chan clipJob
 	archiveMu  sync.Mutex
 	workers    sync.WaitGroup
+	slots      chan struct{}
 	httpClient *http.Client
 }
 
@@ -74,6 +76,7 @@ func NewManager(st store.Store, assetsDir, dbPath, backupsDir string) *Manager {
 		dbPath:     dbPath,
 		backupsDir: backupsDir,
 		queue:      make(chan clipJob, 128),
+		slots:      make(chan struct{}, 2),
 		httpClient: urlutil.FetchClient(12 * time.Second),
 	}
 }
@@ -143,7 +146,6 @@ func (m *Manager) AssetsDir() string {
 
 // Start launches background workers that process auto-clip jobs until ctx is canceled.
 func (m *Manager) Start(ctx context.Context) {
-
 	const workers = 2
 	for i := 0; i < workers; i++ {
 		m.workers.Add(1)
@@ -202,6 +204,22 @@ func (m *Manager) EnqueueClipWithMode(ctx context.Context, workspaceID, bookmark
 	}
 }
 
+func (m *Manager) beginClip(ctx context.Context, wsID, bmID string) (string, func(), error) {
+	if !safePart(wsID) || !safePart(bmID) {
+		return "", nil, errors.New("invalid archive path")
+	}
+	revision, err := m.store.ArchiveRevision(ctx, wsID, bmID)
+	if err != nil {
+		return "", nil, err
+	}
+	select {
+	case m.slots <- struct{}{}:
+		return revision, func() { <-m.slots }, nil
+	case <-ctx.Done():
+		return "", nil, ctx.Err()
+	}
+}
+
 // ClipURL downloads a bookmark URL in readable mode and persists the archive.
 func (m *Manager) ClipURL(ctx context.Context, workspaceID, bookmarkID, createdBy, targetURL string) (domain.BookmarkArchive, error) {
 	return m.ClipURLWithMode(ctx, workspaceID, bookmarkID, createdBy, targetURL, ModeReadable)
@@ -214,27 +232,38 @@ func (m *Manager) ClipURLWithMode(ctx context.Context, workspaceID, bookmarkID, 
 
 // ClipURLWithOptions downloads a bookmark URL and archives it with the specified ClipOptions.
 func (m *Manager) ClipURLWithOptions(ctx context.Context, workspaceID, bookmarkID, createdBy, targetURL string, opts ClipOptions) (domain.BookmarkArchive, error) {
+	revision, release, err := m.beginClip(ctx, workspaceID, bookmarkID)
+	if err != nil {
+		return domain.BookmarkArchive{}, err
+	}
+	defer release()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, "server", err.Error()), err
+		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, revision, "server", err.Error()), err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; linktive-clipper/0.3)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, "server", err.Error()), err
+		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, revision, "server", err.Error()), err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		msg := fmt.Sprintf("HTTP %d from target site", resp.StatusCode)
-		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, "server", msg), errors.New(msg)
+		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, revision, "server", msg), errors.New(msg)
 	}
 
-	rawBytes, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
+	rawBytes, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
+	if err == nil && len(rawBytes) > 8<<20 {
+		err = errors.New("page exceeds 8 MiB")
+	}
+	if err == nil && len(bytes.TrimSpace(rawBytes)) == 0 {
+		err = errors.New("empty page")
+	}
 	if err != nil {
-		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, "server", err.Error()), err
+		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, revision, "server", err.Error()), err
 	}
 
 	finalURL := targetURL
@@ -242,7 +271,11 @@ func (m *Manager) ClipURLWithOptions(ctx context.Context, workspaceID, bookmarkI
 		finalURL = resp.Request.URL.String()
 	}
 
-	return m.SaveHTMLWithOptions(ctx, workspaceID, bookmarkID, createdBy, "server", finalURL, rawBytes, "", "", "", opts)
+	ar, err := m.saveHTML(ctx, workspaceID, bookmarkID, createdBy, "server", finalURL, rawBytes, "", "", "", opts, revision)
+	if err != nil {
+		return m.recordFailure(ctx, workspaceID, bookmarkID, createdBy, revision, "server", err.Error()), err
+	}
+	return ar, nil
 }
 
 // SaveHTML sanitizes HTML in readable mode, caches referenced images, and persists the archive.
@@ -274,11 +307,21 @@ func (m *Manager) SaveHTMLWithOptions(
 	overrideTitle, overrideByline, overrideSite string,
 	opts ClipOptions,
 ) (domain.BookmarkArchive, error) {
-	if !safePart(workspaceID) || !safePart(bookmarkID) {
-		return domain.BookmarkArchive{}, errors.New("invalid archive path")
+	revision, release, err := m.beginClip(ctx, workspaceID, bookmarkID)
+	if err != nil {
+		return domain.BookmarkArchive{}, err
 	}
-	m.archiveMu.Lock()
-	defer m.archiveMu.Unlock()
+	defer release()
+	return m.saveHTML(ctx, workspaceID, bookmarkID, createdBy, source, pageURL, rawHTML, overrideTitle, overrideByline, overrideSite, opts, revision)
+}
+
+func (m *Manager) saveHTML(
+	ctx context.Context,
+	workspaceID, bookmarkID, createdBy, source, pageURL string,
+	rawHTML []byte,
+	overrideTitle, overrideByline, overrideSite string,
+	opts ClipOptions, revision string,
+) (domain.BookmarkArchive, error) {
 	normMode := NormalizeArchiveMode(opts.Mode)
 	extracted := ExtractArticle(rawHTML, pageURL)
 	if strings.TrimSpace(overrideTitle) != "" {
@@ -304,30 +347,95 @@ func (m *Manager) SaveHTMLWithOptions(
 		policy = domain.ArchivePolicy{LimitEnabled: true, MaxAssetMB: 10, MaxBookmarkMB: 30}
 	}
 
+	// Download into a private staging directory. Workspace mutations only wait
+	// for local publication, never for the remote page or its assets.
+	stage, err := os.MkdirTemp("", "linktive-clip-*")
+	if err != nil {
+		return domain.BookmarkArchive{}, err
+	}
+	defer os.RemoveAll(stage)
+	rewrites, notice, err := m.downloadAssets(ctx, workspaceID, bookmarkID, pageURL, stage, imageURLs, snap.StylesheetURLs, policy)
+	if err != nil {
+		return domain.BookmarkArchive{}, err
+	}
+
+	unlock := m.LockAssets()
+	defer unlock()
+	current, err := m.store.ArchiveRevision(ctx, workspaceID, bookmarkID)
+	if err != nil {
+		return domain.BookmarkArchive{}, err
+	}
+	if current != revision {
+		return domain.BookmarkArchive{}, store.ErrAlreadyExists
+	}
 	var existing domain.BookmarkArchive
 	hasExisting := false
-	if opts.Merge {
-		if prev, pErr := m.store.GetBookmarkArchive(ctx, workspaceID, bookmarkID); pErr == nil && prev.Status == "ready" {
-			existing = prev
-			hasExisting = true
+	if opts.Merge && current != "" {
+		existing, err = m.store.GetBookmarkArchive(ctx, workspaceID, bookmarkID)
+		if err != nil {
+			return domain.BookmarkArchive{}, err
+		}
+		hasExisting = existing.Status == "ready"
+	}
+	assetDir := filepath.Join(m.assetsDir, workspaceID, bookmarkID)
+	files, err := os.ReadDir(stage)
+	if err != nil {
+		return domain.BookmarkArchive{}, err
+	}
+	if len(files) > 0 {
+		if err := os.MkdirAll(assetDir, 0755); err != nil {
+			return domain.BookmarkArchive{}, err
 		}
 	}
-
-	assetDir := filepath.Join(m.assetsDir, workspaceID, bookmarkID)
-	var existingBytes int64
+	var size int64
 	if hasExisting {
-		_, existingBytes = MeasureDir(assetDir)
+		_, size = MeasureDir(assetDir)
 	}
-
-	urlRewriteMap, _, _, notice := m.downloadAssets(ctx, workspaceID, bookmarkID, pageURL, assetDir, imageURLs, snap.StylesheetURLs, policy, existingBytes)
+	var published []string
+	committed := false
+	defer func() {
+		if !committed {
+			for _, p := range published {
+				_ = os.Remove(p)
+			}
+		}
+	}()
+	for _, file := range files {
+		src, dest := filepath.Join(stage, file.Name()), filepath.Join(assetDir, file.Name())
+		if _, err := os.Stat(dest); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return domain.BookmarkArchive{}, err
+		}
+		info, err := file.Info()
+		if err != nil {
+			return domain.BookmarkArchive{}, err
+		}
+		if hasExisting && policy.LimitEnabled && size+info.Size() > int64(policy.MaxBookmarkMB)<<20 {
+			for remote, path := range rewrites {
+				if filepath.Base(path) == file.Name() {
+					delete(rewrites, remote)
+				}
+			}
+			notice = "Some resources exceeded the archive size limit."
+			continue
+		}
+		if err := os.Link(src, dest); err != nil {
+			if err := copyAsset(src, dest); err != nil {
+				return domain.BookmarkArchive{}, err
+			}
+		}
+		published = append(published, dest)
+		size += info.Size()
+	}
 
 	finalContentHTML := ""
 	if normMode == ModeReadable || normMode == ModeBoth {
-		finalContentHTML = applyAssetRewrites(extracted.ContentHTML, urlRewriteMap)
+		finalContentHTML = applyAssetRewrites(extracted.ContentHTML, rewrites)
 	}
 	finalSnapshotHTML := ""
 	if normMode == ModeHTML || normMode == ModeBoth {
-		finalSnapshotHTML = applyAssetRewrites(snap.SnapshotHTML, urlRewriteMap)
+		finalSnapshotHTML = applyAssetRewrites(snap.SnapshotHTML, rewrites)
 	}
 
 	finalMode := normMode
@@ -410,10 +518,11 @@ func (m *Manager) SaveHTMLWithOptions(
 	if err := m.store.UpsertBookmarkArchive(ctx, ar); err != nil {
 		return domain.BookmarkArchive{}, err
 	}
+	committed = true
 	for _, path := range obsolete {
 		_ = os.Remove(path)
 	}
-	return ar, nil
+	return m.store.GetBookmarkArchive(ctx, workspaceID, bookmarkID)
 }
 
 func mergeUniqueURLs(groups ...[]string) []string {
@@ -458,18 +567,9 @@ func (m *Manager) downloadAssets(
 	workspaceID, bookmarkID, refererURL, assetDir string,
 	imageURLs, cssURLs []string,
 	policy domain.ArchivePolicy,
-	existingBytes int64,
-) (rewrites map[string]string, assetCount int, totalBytes int64, notice string) {
+) (rewrites map[string]string, notice string, err error) {
 	rewrites = make(map[string]string)
-	totalBytes = existingBytes
-	if len(imageURLs) == 0 && len(cssURLs) == 0 {
-		return
-	}
-
-	if err := os.MkdirAll(assetDir, 0o755); err != nil {
-		return
-	}
-
+	var totalBytes int64
 	var maxAssetBytes int64
 	var maxBookmarkBytes int64
 	if policy.LimitEnabled {
@@ -491,19 +591,13 @@ func (m *Manager) downloadAssets(
 		}
 		allJobs = append(allJobs, assetFetchJob{url: u, isCSS: false})
 	}
-	if len(allJobs) == 0 {
-		if existingBytes == 0 {
-			_ = os.Remove(assetDir)
-		}
-		return
-	}
-
 	jobs := make(chan assetFetchJob, len(allJobs))
 	for _, j := range allJobs {
 		jobs <- j
 	}
 	close(jobs)
 
+	var stageErr error
 	var skippedForLimit int
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -515,16 +609,16 @@ func (m *Manager) downloadAssets(
 				if ctx.Err() != nil {
 					return
 				}
-				var data []byte
-				var ext string
-				var over bool
-				var err error
-				if job.isCSS {
-					data, over, err = m.fetchStylesheet(ctx, job.url, refererURL, maxAssetBytes)
-					ext = ".css"
-				} else {
-					data, ext, over, err = m.fetchSingleImage(ctx, job.url, refererURL, maxAssetBytes)
+				mu.Lock()
+				full := maxBookmarkBytes > 0 && totalBytes >= maxBookmarkBytes
+				if full {
+					skippedForLimit++
 				}
+				mu.Unlock()
+				if full {
+					continue
+				}
+				data, ext, over, err := m.fetchAsset(ctx, job, refererURL, maxAssetBytes)
 				if err != nil {
 					continue
 				}
@@ -541,9 +635,10 @@ func (m *Manager) downloadAssets(
 						rewrites[job.url] = localURL
 					} else if maxBookmarkBytes > 0 && totalBytes+int64(len(data)) > maxBookmarkBytes {
 						skippedForLimit++
-					} else if err := writeAsset(dest, data); err == nil {
+					} else if writeErr := os.WriteFile(dest, data, 0644); writeErr != nil {
+						stageErr = writeErr
+					} else {
 						totalBytes += int64(len(data))
-						assetCount++
 						rewrites[job.url] = localURL
 					}
 				}
@@ -552,84 +647,27 @@ func (m *Manager) downloadAssets(
 		}()
 	}
 	wg.Wait()
-
-	if assetCount == 0 && existingBytes == 0 {
-		_ = os.Remove(assetDir)
+	if stageErr != nil {
+		return nil, "", stageErr
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+
 	if skippedForLimit > 0 {
 		notice = fmt.Sprintf("Skipped %d resource(s) due to archive size limits.", skippedForLimit)
 	}
 	return
 }
 
-func writeAsset(dest string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".download-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	_, err = tmp.Write(data)
-	closeErr := tmp.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return os.Rename(tmp.Name(), dest)
-}
-
 func safePart(s string) bool {
 	return filepath.IsLocal(s) && s != "." && !strings.ContainsAny(s, "/\\\\")
 }
 
-func (m *Manager) fetchStylesheet(ctx context.Context, cssURL, refererURL string, maxAssetBytes int64) ([]byte, bool, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+func (m *Manager) fetchAsset(ctx context.Context, job assetFetchJob, refererURL string, maxBytes int64) (data []byte, ext string, over bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, cssURL, nil)
-	if err != nil {
-		return nil, false, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; linktive-clipper/0.3)")
-	if referer, err := url.Parse(refererURL); err == nil && referer.Host != "" {
-		req.Header.Set("Referer", referer.Scheme+"://"+referer.Host+"/")
-	}
-
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return nil, false, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return nil, false, fmt.Errorf("status %d", resp.StatusCode)
-	}
-	if maxAssetBytes > 0 && resp.ContentLength > maxAssetBytes {
-		return nil, true, nil
-	}
-
-	readCap := int64(16 * 1024 * 1024)
-	if maxAssetBytes > 0 {
-		readCap = maxAssetBytes + 1
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, readCap))
-	if err != nil {
-		return nil, false, err
-	}
-	if maxAssetBytes > 0 && int64(len(data)) > maxAssetBytes {
-		return nil, true, nil
-	}
-
-	rewritten := RewriteCSSURLs(string(data), cssURL)
-	return []byte(rewritten), false, nil
-}
-
-func (m *Manager) fetchSingleImage(ctx context.Context, imgURL, refererURL string, maxAssetBytes int64) ([]byte, string, bool, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, imgURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, job.url, nil)
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -637,39 +675,38 @@ func (m *Manager) fetchSingleImage(ctx context.Context, imgURL, refererURL strin
 	if referer, err := url.Parse(refererURL); err == nil && referer.Host != "" {
 		req.Header.Set("Referer", referer.Scheme+"://"+referer.Host+"/")
 	}
-
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return nil, "", false, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return nil, "", false, fmt.Errorf("status %d", resp.StatusCode)
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", false, fmt.Errorf("resource HTTP status %d", resp.StatusCode)
 	}
-
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
-	if ct != "" && !strings.HasPrefix(ct, "image/") && !strings.Contains(ct, "octet-stream") {
+	if !job.isCSS && ct != "" && !strings.HasPrefix(ct, "image/") && !strings.Contains(ct, "octet-stream") {
 		return nil, "", false, errors.New("not an image")
 	}
-	if maxAssetBytes > 0 && resp.ContentLength > maxAssetBytes {
+	if maxBytes <= 0 {
+		maxBytes = 64 << 20
+		if job.isCSS {
+			maxBytes = 16 << 20
+		}
+	}
+	if resp.ContentLength > maxBytes {
 		return nil, "", true, nil
 	}
-
-	readCap := int64(64 * 1024 * 1024)
-	if maxAssetBytes > 0 {
-		readCap = maxAssetBytes + 1
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, readCap))
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		return nil, "", false, err
 	}
-	if maxAssetBytes > 0 && int64(len(data)) > maxAssetBytes {
+	if int64(len(data)) > maxBytes {
 		return nil, "", true, nil
 	}
-
-	ext := detectImageExt(imgURL, ct)
-	return data, ext, false, nil
+	if job.isCSS {
+		return []byte(RewriteCSSURLs(string(data), resp.Request.URL.String())), ".css", false, nil
+	}
+	return data, detectImageExt(job.url, ct), false, nil
 }
 
 func detectImageExt(imgURL, contentType string) string {
@@ -698,7 +735,7 @@ func detectImageExt(imgURL, contentType string) string {
 	return ".img"
 }
 
-func (m *Manager) recordFailure(ctx context.Context, workspaceID, bookmarkID, createdBy, source, msg string) domain.BookmarkArchive {
+func (m *Manager) recordFailure(ctx context.Context, workspaceID, bookmarkID, createdBy, revision, source, msg string) domain.BookmarkArchive {
 	ar := domain.BookmarkArchive{
 		BookmarkID:   bookmarkID,
 		WorkspaceID:  workspaceID,
@@ -708,7 +745,15 @@ func (m *Manager) recordFailure(ctx context.Context, workspaceID, bookmarkID, cr
 		ErrorMessage: msg,
 		ArchivedAt:   time.Now().UTC(),
 	}
-	_ = m.store.UpsertBookmarkArchive(ctx, ar)
+	// A timeout must still finish a pending job. A deleted or changed archive
+	// belongs to a newer operation and must stay untouched.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	unlock := m.LockAssets()
+	defer unlock()
+	if current, err := m.store.ArchiveRevision(saveCtx, workspaceID, bookmarkID); err == nil && current == revision {
+		_ = m.store.UpsertBookmarkArchive(saveCtx, ar)
+	}
 	return ar
 }
 

@@ -229,6 +229,7 @@ type Store interface {
 	GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) (domain.BookmarkArchive, error)
 	DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmarkID, actorID string) error
 	ClearWorkspaceArchives(ctx context.Context, workspaceID, actorID string) ([]string, error)
+	ArchiveRevision(ctx context.Context, workspaceID, bookmarkID string) (string,error)
 	ArchiveExists(ctx context.Context, workspaceID, bookmarkID string) (bool, error)
 	GetArchivePolicy(ctx context.Context) (domain.ArchivePolicy, error)
 	SaveArchivePolicy(ctx context.Context, policy domain.ArchivePolicy) error

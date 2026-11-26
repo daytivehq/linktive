@@ -169,6 +169,14 @@ func (a *apiHandler) handleArchiveBookmark(w http.ResponseWriter, r *http.Reques
 	if archiveForbidden(w, err) {
 		return
 	}
+	if errors.Is(err, store.ErrAlreadyExists) {
+		writeError(w, http.StatusConflict, "archive changed during clipping; retry")
+		return
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "bookmark was removed or moved")
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{
 			"error":   err.Error(),
