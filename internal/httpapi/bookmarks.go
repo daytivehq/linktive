@@ -373,11 +373,11 @@ func (a *apiHandler) handleBulkBookmarks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if req.Action == "delete" && a.clipper != nil {
-		for _, bmID := range req.BookmarkIDs {
+		for _, bmID := range affected {
 			a.clipper.DeleteBookmarkAssets(wsID, bmID)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"affected": affected})
+	writeJSON(w, http.StatusOK, map[string]int{"affected": len(affected)})
 }
 
 func (a *apiHandler) handleRenameTag(w http.ResponseWriter, r *http.Request) {

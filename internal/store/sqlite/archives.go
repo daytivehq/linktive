@@ -32,7 +32,7 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 		ar.ArchiveMode = "readable"
 	}
 
-	if _, err := tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO bookmark_archives (
 			bookmark_id, workspace_id, created_by, source, archive_mode, status, error_message,
 			title, byline, site_name, content_html, snapshot_html, content_text,
@@ -55,9 +55,15 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 			total_bytes = excluded.total_bytes,
 			archived_at = excluded.archived_at,
 			updated_at = excluded.updated_at
+		WHERE bookmark_archives.status != 'ready' OR excluded.status = 'ready'
 	`, ar.BookmarkID, ar.WorkspaceID, ar.CreatedBy, ar.Source, ar.ArchiveMode, ar.Status, ar.ErrorMessage,
 		ar.Title, ar.Byline, ar.SiteName, ar.ContentHTML, ar.SnapshotHTML, ar.ContentText,
-		ar.AssetCount, ar.TotalBytes, formatTime(ar.ArchivedAt), formatTime(ar.UpdatedAt)); err != nil {
+		ar.AssetCount, ar.TotalBytes, formatTime(ar.ArchivedAt), formatTime(ar.UpdatedAt))
+	if err != nil {
+		return err
+	}
+
+	if n, err := result.RowsAffected(); err != nil || n == 0 {
 		return err
 	}
 

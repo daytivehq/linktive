@@ -143,6 +143,16 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 		t.Fatalf("expected local asset URL rewrite in HTML: %s", ar.ContentHTML)
 	}
 
+	if _, err := mgr.ClipURL(ctx, ws.ID, bm.ID, user.ID, srvURL+"/missing"); err == nil {
+		t.Fatal("expected fetch failure")
+	}
+	preserved, err := st.GetBookmarkArchive(ctx, ws.ID, bm.ID)
+	if err != nil || preserved.ContentHTML != ar.ContentHTML || preserved.Status != "ready" {
+		t.Fatal("last successful archive lost")
+	}
+	if count, _ := clipper.MeasureDir(assetsDir); count != 1 {
+		t.Fatal("last successful image lost")
+	}
 	// Deleting bookmark leaves asset dir orphaned until CleanupOrphanAssets cleans it up.
 	if err := st.DeleteBookmark(ctx, ws.ID, bm.ID); err != nil {
 		t.Fatalf("DeleteBookmark: %v", err)

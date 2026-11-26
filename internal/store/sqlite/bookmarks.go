@@ -248,30 +248,30 @@ func (s *Store) DeleteBookmark(ctx context.Context, workspaceID, bookmarkID stri
 }
 
 // BulkBookmarks executes batch favorite/move/delete/tag updates on multiple bookmarks in a single transaction.
-func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput) (int, error) {
+func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput) ([]string, error) {
 	if len(input.BookmarkIDs) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	if input.Action == "move" && input.CollectionID != nil && *input.CollectionID != "" {
 		if err := s.ensureCollectionExists(ctx, input.WorkspaceID, *input.CollectionID); err != nil {
-			return 0, store.ErrInvalidParent
+			return nil, store.ErrInvalidParent
 		}
 	}
 
 	nowStr := formatTime(time.Now().UTC())
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	affected := 0
+	var affected []string
 	normalizedInputTags := normalizeTags(input.Tags)
 
 	for _, bmID := range input.BookmarkIDs {
 		var exists int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM bookmarks WHERE id = ? AND workspace_id = ?`, bmID, input.WorkspaceID).Scan(&exists); err != nil {
-			return 0, err
+			return nil, err
 		}
 		if exists == 0 {
 			continue
@@ -284,46 +284,46 @@ func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput
 				fav = 1
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE bookmarks SET is_favorite = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`, fav, nowStr, bmID, input.WorkspaceID); err != nil {
-				return 0, err
+				return nil, err
 			}
 		case "move":
 			col := normalizeOptionalID(input.CollectionID)
 			if _, err := tx.ExecContext(ctx, `UPDATE bookmarks SET collection_id = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`, nullableString(col), nowStr, bmID, input.WorkspaceID); err != nil {
-				return 0, err
+				return nil, err
 			}
 		case "delete":
 			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks WHERE id = ? AND workspace_id = ?`, bmID, input.WorkspaceID); err != nil {
-				return 0, err
+				return nil, err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE bookmark_id = ?`, bmID); err != nil {
-				return 0, err
+				return nil, err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE bookmark_id = ?`, bmID); err != nil {
-				return 0, err
+				return nil, err
 			}
 		case "tags_set", "tags_add", "tags_remove":
 			curTags, err := loadTagsForBookmarkTx(ctx, tx, bmID)
 			if err != nil {
-				return 0, err
+				return nil, err
 			}
 			nextTags := mergeTagChange(curTags, normalizedInputTags, input.Action)
 			if err := syncBookmarkTagsTx(ctx, tx, input.WorkspaceID, bmID, nextTags, nowStr); err != nil {
-				return 0, err
+				return nil, err
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE bookmarks SET updated_at = ? WHERE id = ?`, nowStr, bmID); err != nil {
-				return 0, err
+				return nil, err
 			}
 			if err := reindexBookmarkTx(ctx, tx, bmID); err != nil {
-				return 0, err
+				return nil, err
 			}
 		default:
-			return 0, store.ErrInvalidParent
+			return nil, store.ErrInvalidParent
 		}
-		affected++
+		affected = append(affected, bmID)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return nil, err
 	}
 	return affected, nil
 }

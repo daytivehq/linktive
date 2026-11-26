@@ -60,6 +60,7 @@ type Manager struct {
 	dbPath     string
 	backupsDir string
 	queue      chan clipJob
+	archiveMu  sync.Mutex
 	httpClient *http.Client
 }
 
@@ -208,6 +209,11 @@ func (m *Manager) SaveHTMLWithOptions(
 	overrideTitle, overrideByline, overrideSite string,
 	opts ClipOptions,
 ) (domain.BookmarkArchive, error) {
+	if !safePart(workspaceID) || !safePart(bookmarkID) {
+		return domain.BookmarkArchive{}, errors.New("invalid archive path")
+	}
+	m.archiveMu.Lock()
+	defer m.archiveMu.Unlock()
 	normMode := NormalizeArchiveMode(opts.Mode)
 	extracted := ExtractArticle(rawHTML, pageURL)
 	if strings.TrimSpace(overrideTitle) != "" {
@@ -244,9 +250,7 @@ func (m *Manager) SaveHTMLWithOptions(
 
 	assetDir := filepath.Join(m.assetsDir, workspaceID, bookmarkID)
 	var existingBytes int64
-	if !hasExisting {
-		m.DeleteBookmarkAssets(workspaceID, bookmarkID)
-	} else {
+	if hasExisting {
 		_, existingBytes = MeasureDir(assetDir)
 	}
 
@@ -295,7 +299,30 @@ func (m *Manager) SaveHTMLWithOptions(
 		}
 	}
 
-	assetCount, assetBytes := MeasureDir(assetDir)
+	// The committed HTML decides which immutable files remain live.
+	entries, err := os.ReadDir(assetDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return domain.BookmarkArchive{}, err
+	}
+	var obsolete []string
+	var assetCount int
+	var assetBytes int64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.Contains(finalContentHTML, "/assets/"+name) && !strings.Contains(finalSnapshotHTML, "/assets/"+name) {
+			obsolete = append(obsolete, filepath.Join(assetDir, name))
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return domain.BookmarkArchive{}, err
+		}
+		assetCount++
+		assetBytes += info.Size()
+	}
 	totalBytes := assetBytes + int64(len(finalContentHTML)) + int64(len(finalSnapshotHTML)) + int64(len(finalText))
 	ar := domain.BookmarkArchive{
 		BookmarkID:   bookmarkID,
@@ -318,7 +345,10 @@ func (m *Manager) SaveHTMLWithOptions(
 	if err := m.store.UpsertBookmarkArchive(ctx, ar); err != nil {
 		return domain.BookmarkArchive{}, err
 	}
-	return m.store.GetBookmarkArchive(ctx, workspaceID, bookmarkID)
+	for _, path := range obsolete {
+		_ = os.Remove(path)
+	}
+	return ar, nil
 }
 
 func mergeUniqueURLs(groups ...[]string) []string {
@@ -382,13 +412,6 @@ func (m *Manager) downloadAssets(
 		maxBookmarkBytes = int64(policy.MaxBookmarkMB) * 1024 * 1024
 	}
 
-	type fetchedAsset struct {
-		remoteURL string
-		filename  string
-		data      []byte
-		overLimit bool
-	}
-
 	var allJobs []assetFetchJob
 	for _, u := range cssURLs {
 		if len(allJobs) >= 20 {
@@ -416,82 +439,54 @@ func (m *Manager) downloadAssets(
 	}
 	close(jobs)
 
-	results := make([]fetchedAsset, 0, len(allJobs))
+	var skippedForLimit int
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	workers := 4
-	if len(allJobs) < workers {
-		workers = len(allJobs)
-	}
-
-	for i := 0; i < workers; i++ {
+	for range min(4, len(allJobs)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				if strings.HasPrefix(strings.ToLower(job.url), "data:") {
-					continue
+				if ctx.Err() != nil {
+					return
 				}
-				var (
-					data      []byte
-					ext       string
-					overLimit bool
-					err       error
-				)
+				var data []byte
+				var ext string
+				var over bool
+				var err error
 				if job.isCSS {
-					data, overLimit, err = m.fetchStylesheet(ctx, job.url, refererURL, maxAssetBytes)
+					data, over, err = m.fetchStylesheet(ctx, job.url, refererURL, maxAssetBytes)
 					ext = ".css"
 				} else {
-					data, ext, overLimit, err = m.fetchSingleImage(ctx, job.url, refererURL, maxAssetBytes)
+					data, ext, over, err = m.fetchSingleImage(ctx, job.url, refererURL, maxAssetBytes)
 				}
 				if err != nil {
 					continue
 				}
-				if overLimit {
-					mu.Lock()
-					results = append(results, fetchedAsset{remoteURL: job.url, overLimit: true})
-					mu.Unlock()
-					continue
-				}
-				sum := sha256.Sum256([]byte(job.url))
-				filename := hex.EncodeToString(sum[:8]) + ext
 				mu.Lock()
-				results = append(results, fetchedAsset{
-					remoteURL: job.url,
-					filename:  filename,
-					data:      data,
-				})
+				if over {
+					skippedForLimit++
+				} else {
+					sum := sha256.Sum256(data)
+					name := hex.EncodeToString(sum[:16]) + ext
+					dest := filepath.Join(assetDir, name)
+					_, statErr := os.Stat(dest)
+					localURL := fmt.Sprintf("/api/v1/workspaces/%s/bookmarks/%s/assets/%s", workspaceID, bookmarkID, name)
+					if statErr == nil {
+						rewrites[job.url] = localURL
+					} else if maxBookmarkBytes > 0 && totalBytes+int64(len(data)) > maxBookmarkBytes {
+						skippedForLimit++
+					} else if err := writeAsset(dest, data); err == nil {
+						totalBytes += int64(len(data))
+						assetCount++
+						rewrites[job.url] = localURL
+					}
+				}
 				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
-
-	skippedForLimit := 0
-	for _, r := range results {
-		dest := filepath.Join(assetDir, r.filename)
-		localURL := fmt.Sprintf("/api/v1/workspaces/%s/bookmarks/%s/assets/%s",
-			url.PathEscape(workspaceID), url.PathEscape(bookmarkID), url.PathEscape(r.filename))
-		if r.overLimit {
-			skippedForLimit++
-			continue
-		}
-		// Reuse existing cached file without counting against remaining budget if already saved.
-		if _, statErr := os.Stat(dest); statErr == nil {
-			rewrites[r.remoteURL] = localURL
-			continue
-		}
-		if maxBookmarkBytes > 0 && totalBytes+int64(len(r.data)) > maxBookmarkBytes {
-			skippedForLimit++
-			continue
-		}
-		if err := os.WriteFile(dest, r.data, 0o644); err != nil {
-			continue
-		}
-		totalBytes += int64(len(r.data))
-		assetCount++
-		rewrites[r.remoteURL] = localURL
-	}
 
 	if assetCount == 0 && existingBytes == 0 {
 		_ = os.Remove(assetDir)
@@ -500,6 +495,27 @@ func (m *Manager) downloadAssets(
 		notice = fmt.Sprintf("Skipped %d resource(s) due to archive size limits.", skippedForLimit)
 	}
 	return
+}
+
+func writeAsset(dest string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".download-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(data)
+	closeErr := tmp.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(tmp.Name(), dest)
+}
+
+func safePart(s string) bool {
+	return filepath.IsLocal(s) && s != "." && !strings.ContainsAny(s, "/\\\\")
 }
 
 func (m *Manager) fetchStylesheet(ctx context.Context, cssURL, refererURL string, maxAssetBytes int64) ([]byte, bool, error) {
@@ -633,7 +649,7 @@ func (m *Manager) recordFailure(ctx context.Context, workspaceID, bookmarkID, cr
 
 // ResolveAssetPath validates parameters against directory traversal and returns the file path on disk.
 func (m *Manager) ResolveAssetPath(workspaceID, bookmarkID, filename string) (string, error) {
-	if filepath.Base(workspaceID) != workspaceID || filepath.Base(bookmarkID) != bookmarkID || filepath.Base(filename) != filename {
+	if !safePart(workspaceID) || !safePart(bookmarkID) || !safePart(filename) {
 		return "", errors.New("invalid asset path")
 	}
 	if strings.Contains(filename, "..") || strings.Contains(workspaceID, "..") || strings.Contains(bookmarkID, "..") {
@@ -649,7 +665,7 @@ func (m *Manager) ResolveAssetPath(workspaceID, bookmarkID, filename string) (st
 
 // DeleteBookmarkAssets removes cached assets for a single bookmark.
 func (m *Manager) DeleteBookmarkAssets(workspaceID, bookmarkID string) {
-	if workspaceID == "" || bookmarkID == "" || filepath.Base(workspaceID) != workspaceID || filepath.Base(bookmarkID) != bookmarkID {
+	if !safePart(workspaceID) || !safePart(bookmarkID) {
 		return
 	}
 	_ = os.RemoveAll(filepath.Join(m.assetsDir, workspaceID, bookmarkID))
@@ -657,7 +673,7 @@ func (m *Manager) DeleteBookmarkAssets(workspaceID, bookmarkID string) {
 
 // DeleteWorkspaceAssets removes all cached assets for a workspace.
 func (m *Manager) DeleteWorkspaceAssets(workspaceID string) {
-	if workspaceID == "" || filepath.Base(workspaceID) != workspaceID {
+	if !safePart(workspaceID) {
 		return
 	}
 	_ = os.RemoveAll(filepath.Join(m.assetsDir, workspaceID))

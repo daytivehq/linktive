@@ -201,7 +201,7 @@ type Store interface {
 	GetBookmark(ctx context.Context, workspaceID, bookmarkID string) (domain.Bookmark, error)
 	UpdateBookmark(ctx context.Context, input UpdateBookmarkInput) (domain.Bookmark, error)
 	DeleteBookmark(ctx context.Context, workspaceID, bookmarkID string) error
-	BulkBookmarks(ctx context.Context, input BulkBookmarkInput) (int, error)
+	BulkBookmarks(ctx context.Context, input BulkBookmarkInput) ([]string, error)
 	UpdateBookmarkLinkStatus(ctx context.Context, workspaceID, bookmarkID string, status domain.LinkStatus, checkedAt time.Time) error
 	ListWorkspaceBookmarksForCheck(ctx context.Context, workspaceID string, onlyUnchecked bool) ([]domain.Bookmark, error)
 	ListDuplicateBookmarks(ctx context.Context, workspaceID string) (domain.DuplicateLinksResult, error)
