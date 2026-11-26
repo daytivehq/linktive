@@ -92,7 +92,7 @@ export function ApiDocsPage({ activeWorkspaceId, onBack }: ApiDocsPageProps) {
     { method: 'PATCH', path: '/api/v1/workspaces/{wsID}/tags/{tagName}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.tagRename') },
     { method: 'DELETE', path: '/api/v1/workspaces/{wsID}/tags/{tagName}', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.tagDelete') },
     { method: 'GET', path: '/api/v1/workspaces/{wsID}/stats', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.stats') },
-    { method: 'GET', path: '/api/v1/workspaces/{wsID}/export?format=json|html|csv', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.export') },
+    { method: 'GET', path: '/api/v1/workspaces/{wsID}/export?format=json|html|csv|excel_csv', auth: t('apiDocs.authViewer'), desc: t('apiDocs.ep.export') },
     { method: 'POST', path: '/api/v1/workspaces/{wsID}/import', auth: t('apiDocs.authEditor'), desc: t('apiDocs.ep.import') },
     { method: 'GET', path: '/api/v1/public/collections/{slug}', auth: t('apiDocs.authPublic'), desc: t('apiDocs.ep.publicCol') },
   ];

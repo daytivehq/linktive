@@ -62,12 +62,16 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 		ar.ArchiveMode = "readable"
 	}
 
+	assetSources, err := json.Marshal(ar.AssetSources)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO bookmark_archives (
 			bookmark_id, workspace_id, created_by, source, archive_mode, status, error_message,
 			title, byline, site_name, content_html, snapshot_html, content_text,
-			asset_count, total_bytes, archived_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			asset_count, total_bytes, archived_at, updated_at, asset_sources_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(bookmark_id) DO UPDATE SET
 			workspace_id = excluded.workspace_id,
 			created_by = bookmark_archives.created_by,
@@ -84,11 +88,12 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 			asset_count = excluded.asset_count,
 			total_bytes = excluded.total_bytes,
 			archived_at = excluded.archived_at,
-			updated_at = excluded.updated_at
+			updated_at = excluded.updated_at,
+			asset_sources_json = excluded.asset_sources_json
 		WHERE bookmark_archives.status != 'ready' OR excluded.status = 'ready'
 	`, ar.BookmarkID, ar.WorkspaceID, ar.CreatedBy, ar.Source, ar.ArchiveMode, ar.Status, ar.ErrorMessage,
 		ar.Title, ar.Byline, ar.SiteName, ar.ContentHTML, ar.SnapshotHTML, ar.ContentText,
-		ar.AssetCount, ar.TotalBytes, formatTime(ar.ArchivedAt), formatTime(ar.UpdatedAt))
+		ar.AssetCount, ar.TotalBytes, formatTime(ar.ArchivedAt), formatTime(ar.UpdatedAt), string(assetSources))
 	if err != nil {
 		return err
 	}
@@ -176,22 +181,25 @@ func (s *Store) RecoverInterruptedClips(ctx context.Context) error {
 // GetBookmarkArchive loads an archived web page copy for a bookmark within a workspace.
 func (s *Store) GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) (domain.BookmarkArchive, error) {
 	var ar domain.BookmarkArchive
-	var archivedAt, updatedAt string
+	var archivedAt, updatedAt, assetSources string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT bookmark_id, workspace_id, created_by, source, archive_mode, status, error_message,
 		       title, byline, site_name, content_html, snapshot_html, content_text,
-		       asset_count, total_bytes, archived_at, updated_at
+		       asset_count, total_bytes, archived_at, updated_at, asset_sources_json
 		FROM bookmark_archives ar
 		WHERE bookmark_id = ? AND workspace_id = ? AND EXISTS (SELECT 1 FROM bookmarks b WHERE b.id=ar.bookmark_id AND b.workspace_id=ar.workspace_id)
 	`, bookmarkID, workspaceID).Scan(
 		&ar.BookmarkID, &ar.WorkspaceID, &ar.CreatedBy, &ar.Source, &ar.ArchiveMode, &ar.Status, &ar.ErrorMessage,
 		&ar.Title, &ar.Byline, &ar.SiteName, &ar.ContentHTML, &ar.SnapshotHTML, &ar.ContentText,
-		&ar.AssetCount, &ar.TotalBytes, &archivedAt, &updatedAt,
+		&ar.AssetCount, &ar.TotalBytes, &archivedAt, &updatedAt, &assetSources,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.BookmarkArchive{}, store.ErrNotFound
 	}
 	if err != nil {
+		return domain.BookmarkArchive{}, err
+	}
+	if err := json.Unmarshal([]byte(assetSources), &ar.AssetSources); err != nil {
 		return domain.BookmarkArchive{}, err
 	}
 	ar.ArchivedAt = parseTime(archivedAt)

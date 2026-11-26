@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/netip"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -17,11 +18,13 @@ import (
 )
 
 type apiHandler struct {
-	clipRequests chan struct{}
-	authState    authState
-	store        store.Store
-	backup       *backup.Manager
-	clipper      *clipper.Manager
+	trustedProxies map[netip.Addr]bool
+	setupToken     string
+	clipRequests   chan struct{}
+	authState      authState
+	store          store.Store
+	backup         *backup.Manager
+	clipper        *clipper.Manager
 }
 
 func (a *apiHandler) withArchiveFiles(next http.Handler) http.Handler {
@@ -48,6 +51,17 @@ func WithBackupManager(m *backup.Manager) RouterOption {
 func WithClipper(m *clipper.Manager) RouterOption {
 	return func(h *apiHandler) {
 		h.clipper = m
+	}
+}
+
+// WithAuthConfig configures trusted proxy addresses and optional first-user protection.
+func WithAuthConfig(proxyIPs []netip.Addr, setupToken string) RouterOption {
+	return func(h *apiHandler) {
+		h.trustedProxies = make(map[netip.Addr]bool, len(proxyIPs))
+		for _, ip := range proxyIPs {
+			h.trustedProxies[ip.Unmap()] = true
+		}
+		h.setupToken = setupToken
 	}
 }
 

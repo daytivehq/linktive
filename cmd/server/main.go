@@ -20,7 +20,10 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -36,13 +39,13 @@ func main() {
 	}()
 
 	backupsDir := filepath.Join(cfg.DataDir, "backups")
-	backupMgr := backup.NewManager(st, backupsDir)
 	if err := st.RecoverInterruptedClips(ctx); err != nil {
 		log.Fatalf("recover interrupted archives: %v", err)
 	}
 	backupDone := make(chan struct{})
 
 	clipMgr := clipper.NewManager(st, filepath.Join(cfg.DataDir, "assets"), cfg.DBPath, backupsDir)
+	backupMgr := backup.NewManager(st, backupsDir, clipMgr)
 	if err := st.RepairMovedArchives(ctx, clipMgr.CopyBookmarkAssets, clipMgr.DeleteBookmarkAssets); err != nil {
 		log.Printf("archive move recovery: %v", err)
 	}
@@ -63,6 +66,7 @@ func main() {
 		Handler: httpapi.NewRouter(
 			st,
 			staticFS,
+			httpapi.WithAuthConfig(cfg.TrustedProxyIPs, cfg.SetupToken),
 			httpapi.WithBackupManager(backupMgr),
 			httpapi.WithClipper(clipMgr),
 		),

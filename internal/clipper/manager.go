@@ -371,7 +371,7 @@ func (m *Manager) saveHTML(
 		return domain.BookmarkArchive{}, err
 	}
 	defer os.RemoveAll(stage)
-	rewrites, notice, incomplete, err := m.downloadAssets(ctx, workspaceID, bookmarkID, pageURL, stage, imageURLs, snap.StylesheetURLs, policy)
+	rewrites, notice, failedURLs, err := m.downloadAssets(ctx, workspaceID, bookmarkID, pageURL, stage, imageURLs, snap.StylesheetURLs, policy)
 	if err != nil {
 		return domain.BookmarkArchive{}, err
 	}
@@ -387,7 +387,7 @@ func (m *Manager) saveHTML(
 	}
 	var existing domain.BookmarkArchive
 	hasExisting := false
-	if (opts.Merge || incomplete) && current != "" {
+	if current != "" {
 		existing, err = m.store.GetBookmarkArchive(ctx, workspaceID, bookmarkID)
 		if err != nil {
 			return domain.BookmarkArchive{}, err
@@ -395,6 +395,22 @@ func (m *Manager) saveHTML(
 		hasExisting = opts.Merge && existing.Status == "ready"
 	}
 	assetDir := filepath.Join(m.assetsDir, workspaceID, bookmarkID)
+	var reused int
+	for _, remote := range failedURLs {
+		if _, refreshed := rewrites[remote]; refreshed {
+			continue
+		}
+		name := existing.AssetSources[assetSourceKey(remote)]
+		if !safePart(name) {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(assetDir, name))
+		if err == nil && info.Mode().IsRegular() {
+			rewrites[remote] = archiveAssetURL(workspaceID, bookmarkID, name)
+			reused++
+		}
+	}
+
 	files, err := os.ReadDir(stage)
 	if err != nil {
 		return domain.BookmarkArchive{}, err
@@ -495,6 +511,7 @@ func (m *Manager) saveHTML(
 		return domain.BookmarkArchive{}, err
 	}
 	var obsolete []string
+	liveAssets := make(map[string]bool)
 	var assetCount int
 	var assetBytes int64
 	for _, entry := range entries {
@@ -504,7 +521,7 @@ func (m *Manager) saveHTML(
 		name := entry.Name()
 		assetPath := "/assets/" + name
 		if !strings.Contains(finalContentHTML, assetPath) && !strings.Contains(finalSnapshotHTML, assetPath) {
-			if incomplete && existing.Status == "ready" && (strings.Contains(existing.ContentHTML, assetPath) || strings.Contains(existing.SnapshotHTML, assetPath)) {
+			if reused < len(failedURLs) && existing.Status == "ready" && (strings.Contains(existing.ContentHTML, assetPath) || strings.Contains(existing.SnapshotHTML, assetPath)) {
 				return domain.BookmarkArchive{}, errors.New("could not refresh archived resources; previous archive retained")
 			}
 			obsolete = append(obsolete, filepath.Join(assetDir, name))
@@ -514,8 +531,26 @@ func (m *Manager) saveHTML(
 		if err != nil {
 			return domain.BookmarkArchive{}, err
 		}
+		liveAssets[name] = true
 		assetCount++
 		assetBytes += info.Size()
+	}
+	if reused > 0 && policy.LimitEnabled && assetBytes > int64(policy.MaxBookmarkMB)<<20 {
+		return domain.BookmarkArchive{}, errors.New("cached resources exceed the archive size limit; previous archive retained")
+	}
+	sources := make(map[string]string)
+	for key, name := range existing.AssetSources {
+		if liveAssets[name] {
+			sources[key] = name
+		}
+	}
+	for remote, path := range rewrites {
+		if name := filepath.Base(path); liveAssets[name] {
+			sources[assetSourceKey(remote)] = name
+		}
+	}
+	if len(failedURLs) > 0 {
+		notice = strings.TrimSpace(notice + " " + fmt.Sprintf("Could not refresh %d resource(s); reused %d cached file(s).", len(failedURLs), reused))
 	}
 	totalBytes := assetBytes + int64(len(finalContentHTML)) + int64(len(finalSnapshotHTML)) + int64(len(finalText))
 	ar := domain.BookmarkArchive{
@@ -532,6 +567,7 @@ func (m *Manager) saveHTML(
 		ContentHTML:  finalContentHTML,
 		SnapshotHTML: finalSnapshotHTML,
 		ContentText:  finalText,
+		AssetSources: sources,
 		AssetCount:   assetCount,
 		TotalBytes:   totalBytes,
 		ArchivedAt:   time.Now().UTC(),
@@ -588,7 +624,7 @@ func (m *Manager) downloadAssets(
 	workspaceID, bookmarkID, refererURL, assetDir string,
 	imageURLs, cssURLs []string,
 	policy domain.ArchivePolicy,
-) (rewrites map[string]string, notice string, incomplete bool, err error) {
+) (rewrites map[string]string, notice string, failedURLs []string, err error) {
 	rewrites = make(map[string]string)
 	var totalBytes int64
 	var maxAssetBytes int64
@@ -642,7 +678,7 @@ func (m *Manager) downloadAssets(
 				data, ext, over, err := m.fetchAsset(ctx, job, refererURL, maxAssetBytes)
 				mu.Lock()
 				if err != nil {
-					incomplete = true
+					failedURLs = append(failedURLs, job.url)
 				} else if over {
 					skippedForLimit++
 				} else {
@@ -650,7 +686,7 @@ func (m *Manager) downloadAssets(
 					name := hex.EncodeToString(sum[:16]) + ext
 					dest := filepath.Join(assetDir, name)
 					_, statErr := os.Stat(dest)
-					localURL := fmt.Sprintf("/api/v1/workspaces/%s/bookmarks/%s/assets/%s", workspaceID, bookmarkID, name)
+					localURL := archiveAssetURL(workspaceID, bookmarkID, name)
 					if statErr == nil {
 						rewrites[job.url] = localURL
 					} else if maxBookmarkBytes > 0 && totalBytes+int64(len(data)) > maxBookmarkBytes {
@@ -668,16 +704,25 @@ func (m *Manager) downloadAssets(
 	}
 	wg.Wait()
 	if stageErr != nil {
-		return nil, "", false, stageErr
+		return nil, "", nil, stageErr
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, "", false, err
+		return nil, "", nil, err
 	}
 
 	if skippedForLimit > 0 {
 		notice = fmt.Sprintf("Skipped %d resource(s) due to archive size limits.", skippedForLimit)
 	}
 	return
+}
+
+func assetSourceKey(remoteURL string) string {
+	sum := sha256.Sum256([]byte(remoteURL))
+	return hex.EncodeToString(sum[:])
+}
+
+func archiveAssetURL(workspaceID, bookmarkID, name string) string {
+	return fmt.Sprintf("/api/v1/workspaces/%s/bookmarks/%s/assets/%s", workspaceID, bookmarkID, name)
 }
 
 func safePart(s string) bool {

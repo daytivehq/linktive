@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,6 +73,7 @@ func (a *apiHandler) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load auth config")
 		return
 	}
+	cfg.SetupTokenRequired = !cfg.HasUsers && a.setupToken != ""
 	writeJSON(w, http.StatusOK, cfg)
 }
 
@@ -79,6 +83,7 @@ func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Name        string `json:"name"`
 		Password    string `json:"password"`
 		InviteToken string `json:"invite_token"`
+		SetupToken  string `json:"setup_token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -95,6 +100,18 @@ func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if len(req.Password) > 72 {
 		writeError(w, http.StatusBadRequest, "password must be at most 72 bytes")
 		return
+	}
+	if a.setupToken != "" {
+		cfg, err := a.store.GetAuthConfig(r.Context(), "")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load setup state")
+			return
+		}
+		expected, supplied := sha256.Sum256([]byte(a.setupToken)), sha256.Sum256([]byte(req.SetupToken))
+		if !cfg.HasUsers && subtle.ConstantTimeCompare(expected[:], supplied[:]) != 1 {
+			writeError(w, http.StatusForbidden, "a valid setup token is required")
+			return
+		}
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -131,6 +148,29 @@ func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *apiHandler) loginClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil || !a.trustedProxies[peer.Unmap()] {
+		return host
+	}
+	for _, header := range slices.Backward(r.Header.Values("X-Forwarded-For")) {
+		for _, raw := range slices.Backward(strings.Split(header, ",")) {
+			ip, err := netip.ParseAddr(strings.TrimSpace(raw))
+			if err != nil || ip.Zone() != "" {
+				return host
+			}
+			if !a.trustedProxies[ip.Unmap()] {
+				return ip.Unmap().String()
+			}
+		}
+	}
+	return host
+}
+
 func (a *apiHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -143,11 +183,7 @@ func (a *apiHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if !a.authState.allow("ip:"+host, 150, now) || !a.authState.allow("login:"+hashToken(strings.ToLower(strings.TrimSpace(req.Email))), 12, now) {
+	if !a.authState.allow("ip:"+a.loginClientIP(r), 150, now) || !a.authState.allow("login:"+hashToken(strings.ToLower(strings.TrimSpace(req.Email))), 12, now) {
 		w.Header().Set("Retry-After", "300")
 		writeError(w, http.StatusTooManyRequests, "too many login attempts; try again in five minutes")
 		return
@@ -300,6 +336,27 @@ func (a *apiHandler) handleUpdatePassword(w http.ResponseWriter, r *http.Request
 
 func (a *apiHandler) handle2FASetup(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
+	var req struct {
+		Password string `json:"password"`
+		Code     string `json:"code"`
+	}
+	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "current password is required")
+		return
+	}
+	now := time.Now()
+	if !a.authState.allow("otp:"+user.ID, 12, now) {
+		writeError(w, http.StatusTooManyRequests, "too many verification attempts")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
+		writeError(w, http.StatusUnauthorized, "password is incorrect")
+		return
+	}
+	if user.TOTPEnabled && !authutil.VerifyTOTPCode(user.TOTPSecret, req.Code, now) {
+		writeError(w, http.StatusBadRequest, "current 2FA verification code is required")
+		return
+	}
 	secret, err := authutil.GenerateTOTPSecret()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate 2FA secret")

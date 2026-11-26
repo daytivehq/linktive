@@ -8,6 +8,7 @@ interface ConfirmModalProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  requireCloseOnError?: boolean;
   danger?: boolean;
   onClose: () => void;
   onConfirm: () => Promise<void>;
@@ -18,6 +19,7 @@ export function ConfirmModal({
   message,
   confirmLabel,
   danger = true,
+  requireCloseOnError = false,
   onClose,
   onConfirm,
 }: ConfirmModalProps) {
@@ -43,6 +45,9 @@ export function ConfirmModal({
 
   return (
     <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={title}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
@@ -87,7 +92,7 @@ export function ConfirmModal({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || (requireCloseOnError && Boolean(error))}
             onClick={() => void handleConfirm()}
             className={`rounded-lg px-4 py-1.5 text-sm font-medium text-white disabled:opacity-60 ${
               danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-sky-600 hover:bg-sky-700'

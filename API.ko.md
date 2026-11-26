@@ -22,6 +22,7 @@ Authorization: Bearer lkt_YOUR_API_KEY
 - `GET /api/v1/health` — 서버 및 SQLite 연결 확인 (인증 불필요)
 - `GET /api/v1/auth/me` — 내 계정 및 소속(워크스페이스) 목록 조회
 - `PATCH /api/v1/auth/settings` — 표시 언어(`language`), 클릭 동작, 보기 모드, 기본 클리핑 방식 등 사용자 설정 저장
+- `POST /api/v1/auth/2fa/setup` — 인증 앱 등록을 시작합니다. `password`와 기존 2단계 인증이 켜져 있으면 현재 OTP를 `code`로 보냅니다. 새 OTP는 `POST /api/v1/auth/2fa/enable`에 보냅니다.
 - `GET /api/v1/api-keys`, `POST /api/v1/api-keys`, `DELETE /api/v1/api-keys/{keyID}` — API 키 관리
 
 ### 소속 (Workspaces)
@@ -44,13 +45,15 @@ Authorization: Bearer lkt_YOUR_API_KEY
 ### 북마크 · 검색 · 일괄 처리
 - `GET /api/v1/workspaces/{wsID}/bookmarks`
   - 쿼리 파라미터: `q`, `collection_id` (`uncollected` 가능), `include_children=true`, `favorite=true`, `tag`, `link_status` (`unknown|ok|broken|blocked`), `search_archive` (`true|false`), `sort` (`relevance|newest|oldest|title`), `limit`, `offset`
-  - 검색 연산자: `tags:`, `-tags:`, `site:`, `in:`, `date:YYYY-MM-DD`, `after:YYYY-MM-DD`, `before:YYYY-MM-DD`, `is:favorite`, `is:broken`, `is:blocked`
+  - 검색 연산자: `tags:`, `-tags:`, `site:`, `in:`, `date:YYYY-MM-DD`, `after:YYYY-MM-DD`, `before:YYYY-MM-DD`, `is:favorite`, `is:broken`, `is:blocked`, `is:archived`, `-is:archived`
+  - 아카이브 검색은 요청자가 열람할 수 있는 완료 보관본을 기준으로 합니다.
 - `POST /api/v1/workspaces/{wsID}/bookmarks`
   - `{"url": "https://example.com", "collection_id": null, "tags": ["개발"], "allow_duplicate": false, "clip_now": false}`
   - `title`·`description`을 비워두면 대상 페이지에서 제목·설명·파비콘을 자동 수집합니다.
   - 중복 URL은 `409 Conflict`를 반환합니다. 열람 권한이 있는 경우에만 `existing`에 기존 북마크를 포함합니다.
 - `GET /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 단일 북마크 조회
 - `PATCH /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 북마크 수정 및 소속 이동(`target_workspace_id`)
+  - `expected_updated_at`에 마지막 조회의 `updated_at`을 전달하면 편집 충돌 시 서버가 `409`와 최신 북마크를 반환합니다.
 - `DELETE /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 북마크 삭제 (연결된 아카이빙 본문·로컬 이미지도 함께 삭제)
 - `POST /api/v1/workspaces/{wsID}/bookmarks/bulk`
   - `action`: `favorite`, `unfavorite`, `move`, `delete`, `tags_add`, `tags_set`, `tags_remove`
@@ -78,7 +81,8 @@ Authorization: Bearer lkt_YOUR_API_KEY
 - `PATCH /api/v1/workspaces/{wsID}/tags/{tagName}` — 태그 이름 변경 (기존 태그와 이름 동일 시 자동 병합)
 - `DELETE /api/v1/workspaces/{wsID}/tags/{tagName}` — 태그 삭제
 - `GET /api/v1/workspaces/{wsID}/stats` — 전체·즐겨찾기·미분류·손상·접근제한·중복 개수
-- `GET /api/v1/workspaces/{wsID}/export?format=json|html|csv` — 내보내기
+- `GET /api/v1/workspaces/{wsID}/export?format=json|html|csv|excel_csv` — 내보내기
+  - `excel_csv`는 수식으로 해석될 수 있는 셀을 텍스트로 내보냅니다. 원문 보존에는 JSON을 사용하세요.
 - `POST /api/v1/workspaces/{wsID}/import` — 가져오기 (`multipart/form-data`의 `file`, `format=auto|linktive_json|html|raindrop_csv|linkwarden_json|karakeep_json`, `skip_duplicates=true`)
 
 ### 관리자 · 자동 백업 · 아카이빙 정책 (Admin 전용)
@@ -86,9 +90,9 @@ Authorization: Bearer lkt_YOUR_API_KEY
 - `PATCH /api/v1/admin/archive-settings` — 아카이빙 용량·파일 크기 안전장치 (`limit_enabled`, `max_asset_mb`, `max_bookmark_mb`) 변경
 - `POST /api/v1/admin/assets/cleanup` — DB 참조가 없는 고아 에셋 파일 정리
 - `GET /api/v1/admin/backups` — 자동 백업 설정 및 저장된 스냅샷 목록 조회
-- `PATCH /api/v1/admin/backups/settings` — 자동 백업 활성화·주기(시간)·보관 개수 설정
-- `POST /api/v1/admin/backups/run` — SQLite 온라인 스냅샷 백업 즉시 실행
-- `GET /api/v1/admin/backups/{filename}`, `DELETE /api/v1/admin/backups/{filename}` — 백업 파일 다운로드/삭제
+- `PATCH /api/v1/admin/backups/settings` — 활성 여부(`enabled`), 주기(`interval_hours`), 보관 개수(`keep_count`), 이미지·CSS 포함 여부(`include_assets`, 기본값 `false`) 설정
+- `POST /api/v1/admin/backups/run` — 저장한 범위로 즉시 백업합니다. DB만 선택하면 `.db`, 전체 백업은 `linktive.db`와 `assets/`가 담긴 `.zip`을 만듭니다.
+- `GET /api/v1/admin/backups/{filename}`, `DELETE /api/v1/admin/backups/{filename}` — 백업 다운로드 및 삭제. 백업 항목의 `includes_assets`로 범위를 확인할 수 있습니다.
 
 ---
 

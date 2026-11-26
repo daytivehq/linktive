@@ -357,7 +357,7 @@ func (a *apiHandler) handleUpdateSharedCollectionBookmark(w http.ResponseWriter,
 		writeError(w, http.StatusInternalServerError, "failed to verify bookmark")
 		return
 	}
-	a.updateBookmarkInWorkspace(w, r, access.WorkspaceID, bmID, false)
+	a.updateBookmarkInWorkspace(w, r, access.WorkspaceID, bmID, colID)
 }
 
 func (a *apiHandler) handleDeleteSharedCollectionBookmark(w http.ResponseWriter, r *http.Request) {

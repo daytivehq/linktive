@@ -43,7 +43,10 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
     enabled: true,
     interval_hours: 24,
     keep_count: 7,
+    include_assets: false,
   });
+  const [backupSettingsReady, setBackupSettingsReady] = useState(false);
+  const [savingBackupSettings, setSavingBackupSettings] = useState(false);
   const [backups, setBackups] = useState<BackupFileInfo[]>([]);
   const [adminUsage, setAdminUsage] = useState<AdminUsage | null>(null);
   const [archivePolicy, setArchivePolicy] = useState<ArchivePolicy>({
@@ -73,6 +76,7 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
         setUsers(usersRes.items);
         setInvites(invitesRes.items);
         setBackupSettings(backupRes.settings);
+        setBackupSettingsReady(true);
         setBackups(backupRes.items);
         setAdminUsage(usageRes);
         setArchivePolicy(usageRes.archive_policy);
@@ -147,16 +151,20 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
   const handleSaveBackupSettings = async (next: AutoBackupSettings) => {
     setError('');
     setMessage('');
+    setSavingBackupSettings(true);
     try {
       const updated = await api.adminUpdateBackupSettings({
         enabled: next.enabled,
         interval_hours: next.interval_hours,
         keep_count: next.keep_count,
+        include_assets: next.include_assets,
       });
       setBackupSettings(updated);
       setMessage(t('admin.backupSettingsSaved'));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.saveFailed'));
+    } finally {
+      setSavingBackupSettings(false);
     }
   };
 
@@ -592,7 +600,7 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
           </div>
           <button
             type="button"
-            disabled={runningBackup}
+            disabled={!backupSettingsReady || runningBackup || savingBackupSettings}
             onClick={() => void handleRunBackupNow()}
             className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
           >
@@ -601,7 +609,11 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
           </button>
         </div>
 
-        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs sm:grid-cols-3">
+        <fieldset
+          disabled={!backupSettingsReady || savingBackupSettings || runningBackup}
+          className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs sm:grid-cols-2"
+        >
+          <legend className="sr-only">{t('admin.backupsTitle')}</legend>
           <label className="flex cursor-pointer items-center gap-2 font-medium text-slate-700">
             <input
               type="checkbox"
@@ -611,6 +623,21 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
               }
             />
             <span>{t('admin.backupEnable')}</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-slate-600">
+            <span className="shrink-0">{t('admin.backupScope')}</span>
+            <select
+              value={backupSettings.include_assets ? 'full' : 'database'}
+              onChange={(e) => void handleSaveBackupSettings({
+                ...backupSettings,
+                include_assets: e.target.value === 'full',
+              })}
+              className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800"
+            >
+              <option value="database">{t('admin.backupDatabaseOnly')}</option>
+              <option value="full">{t('admin.backupFull')}</option>
+            </select>
           </label>
 
           <label className="flex items-center gap-2 text-slate-600">
@@ -650,8 +677,13 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
               <option value={30}>{t('admin.keepCount', { count: 30 })}</option>
             </select>
           </label>
-        </div>
+        </fieldset>
 
+        {backupSettings.last_failure_at && (
+          <p className="text-xs text-rose-700">
+            {t('admin.backupFailedAt', { date: new Date(backupSettings.last_failure_at).toLocaleString(dateLocale) })}
+          </p>
+        )}
         {backupSettings.last_run_at && (
           <p className="text-[11px] text-slate-400">
             {t('admin.lastBackupAt', {
@@ -676,7 +708,7 @@ export function AdminPage({ currentUser, onBack }: AdminPageProps) {
                       {b.filename}
                     </div>
                     <div className="text-[11px] text-slate-400">
-                      {formatBytes(b.size_bytes)} · {new Date(b.created_at).toLocaleString(dateLocale)}
+                      {t(b.includes_assets ? 'admin.backupFull' : 'admin.backupDatabaseOnly')} · {formatBytes(b.size_bytes)} · {new Date(b.created_at).toLocaleString(dateLocale)}
                     </div>
                   </div>
                 </div>

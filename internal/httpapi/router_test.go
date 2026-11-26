@@ -389,7 +389,7 @@ func TestProfile2FAAndAdminFlow(t *testing.T) {
 	if other := doJSON(t, handler, http.MethodGet, "/api/v1/auth/me", nil, second.Result().Cookies()); other.Code != 401 {
 		t.Fatal("old session still valid")
 	}
-	setupRec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", nil, memberCookies)
+	setupRec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", map[string]string{"password": "newpassword456"}, memberCookies)
 	if setupRec.Code != http.StatusOK {
 		t.Fatalf("2fa setup failed: %d", setupRec.Code)
 	}
@@ -406,7 +406,10 @@ func TestProfile2FAAndAdminFlow(t *testing.T) {
 		t.Fatalf("2fa enable failed: %d %s", rec.Code, rec.Body.String())
 	}
 
-	if rec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", nil, memberCookies); rec.Code != 200 {
+	if rec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", map[string]string{"password": "newpassword456"}, memberCookies); rec.Code != http.StatusBadRequest {
+		t.Fatal("replacement should require the current OTP")
+	}
+	if rec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", map[string]string{"password": "newpassword456", "code": code}, memberCookies); rec.Code != 200 {
 		t.Fatal("replacement setup failed")
 	}
 	// Login still accepts the active code while a replacement is pending.
@@ -472,7 +475,7 @@ func TestSavedFiltersLinkCheckAndAdminBackups(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 
-	backupMgr := backup.NewManager(st, t.TempDir())
+	backupMgr := backup.NewManager(st, t.TempDir(), clipper.NewManager(st, t.TempDir(), "", ""))
 	handler := NewRouter(st, fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}}, WithBackupManager(backupMgr))
 
 	// Register first user (admin).
@@ -619,6 +622,27 @@ func TestSavedFiltersLinkCheckAndAdminBackups(t *testing.T) {
 	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/admin/backups/"+backupInfo.Filename, nil, cookies)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete backup failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/admin/backups/settings", map[string]bool{"include_assets": true}, cookies)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"include_assets":true`) {
+		t.Fatalf("select full backup failed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, handler, http.MethodPost, "/api/v1/admin/backups/run", nil, cookies)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"includes_assets":true`) {
+		t.Fatalf("run full backup failed: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &backupInfo); err != nil || !strings.HasSuffix(backupInfo.Filename, ".zip") {
+		t.Fatalf("expected ZIP filename: %v", err)
+	}
+	rec = doJSON(t, handler, http.MethodGet, "/api/v1/admin/backups/"+backupInfo.Filename, nil, cookies)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/zip" ||
+		!strings.HasPrefix(rec.Body.String(), "PK") {
+		t.Fatalf("download full backup failed: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/admin/backups/"+backupInfo.Filename, nil, cookies)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete full backup failed: %d %s", rec.Code, rec.Body.String())
 	}
 
 	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/workspaces/"+wsID+"/filters/"+createdFilter.ID, nil, cookies)

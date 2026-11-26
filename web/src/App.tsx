@@ -49,7 +49,7 @@ import {
   useNavigate,
   useSearchParams,
 } from 'react-router-dom';
-import { api } from './api/client';
+import { api, ApiError } from './api/client';
 import { useBackClose } from './hooks/useBackClose';
 import { useEscapeKey } from './hooks/useEscapeKey';
 import { useScrollLock } from './hooks/useScrollLock';
@@ -265,6 +265,7 @@ function AuthenticatedShell({
     title: string;
     message: string;
     onConfirm: () => Promise<void>;
+    requireCloseOnError?: boolean;
   } | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -330,28 +331,6 @@ function AuthenticatedShell({
   useEffect(() => {
     setSearchInput(urlQuery);
   }, [urlQuery]);
-
-  // Global "/" shortcut to focus search bar.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-      e.preventDefault();
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
 
   // Clear selection and close mobile drawer/menus when changing views or workspace.
   useEffect(() => {
@@ -460,6 +439,10 @@ function AuthenticatedShell({
     routeScope.kind === 'collection'
       ? collections.find((c) => c.id === routeScope.collectionId)
       : undefined;
+
+  const collectionNames = useMemo(() => new Map(
+    [...collections, ...sharedCollections].map(({ id, name }) => [id, name]),
+  ), [collections, sharedCollections]);
 
   const activeSavedFilter =
     routeScope.kind === 'filter'
@@ -721,20 +704,21 @@ function AuthenticatedShell({
     note: string;
     collection_id: string | null;
     tags: string[];
-    is_favorite: boolean;
+    expected_updated_at: string;
     target_workspace_id?: string;
   }) => {
     const updated =
       isSharedCollectionView && activeSharedCollection
         ? await api.updateSharedCollectionBookmark(activeSharedCollection.id, payload.id, {
+            expected_updated_at: payload.expected_updated_at,
             url: payload.url,
             title: payload.title,
             description: payload.description,
             note: payload.note,
             tags: payload.tags,
-            is_favorite: payload.is_favorite,
           })
         : await api.updateBookmark(activeWorkspace.id, payload.id, {
+            expected_updated_at: payload.expected_updated_at,
             target_workspace_id: payload.target_workspace_id,
             collection_id: payload.collection_id,
             url: payload.url,
@@ -742,7 +726,6 @@ function AuthenticatedShell({
             description: payload.description,
             note: payload.note,
             tags: payload.tags,
-            is_favorite: payload.is_favorite,
           });
 
     if (payload.target_workspace_id) {
@@ -758,10 +741,17 @@ function AuthenticatedShell({
       title: t('confirm.deleteBookmarkTitle'),
       message: t('confirm.deleteBookmarkMsg', { title: bm.title }),
       onConfirm: async () => {
-        if (isSharedCollectionView && activeSharedCollection) {
-          await api.deleteSharedCollectionBookmark(activeSharedCollection.id, bm.id);
-        } else {
-          await api.deleteBookmark(activeWorkspace.id, bm.id);
+        try {
+          if (isSharedCollectionView && activeSharedCollection) {
+            await api.deleteSharedCollectionBookmark(activeSharedCollection.id, bm.id);
+          } else {
+            await api.deleteBookmark(activeWorkspace.id, bm.id);
+          }
+        } catch (err) {
+          if (err instanceof ApiError && err.code === 'archive_restricted') {
+            throw new Error(t('feed.archiveRestricted'));
+          }
+          throw err;
         }
         if (detailDrawer?.bookmark.id === bm.id) setDetailDrawer(null);
         await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
@@ -865,6 +855,61 @@ function AuthenticatedShell({
     if (payload.action === 'delete') setSelectMode(false);
     await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
   };
+
+  const requestDeleteSelected = () => {
+    setConfirmState({
+      title: t('confirm.deleteSelectedTitle'),
+      requireCloseOnError: true,
+      message: t('confirm.deleteSelectedMsg', { count: selectedIds.size }),
+      onConfirm: async () => {
+        try {
+          await handleBulkExecute({ action: 'delete' });
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.blockedBookmarkIds.length === 0) throw err;
+          const blocked = new Set(err.blockedBookmarkIds);
+          const names = bookmarks.filter(({ id }) => blocked.has(id)).map(({ title }) => title).join(', ');
+          setSelectedIds(new Set([...selectedIds].filter((id) => !blocked.has(id))));
+          throw new Error(t('feed.bulkArchiveRestricted', { count: blocked.size, names }));
+        }
+      },
+    });
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.isComposing ||
+          event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.isContentEditable || target?.closest('input, textarea, select, [role="textbox"]')) return;
+      if (addModalOpen || collectionModal.open || savedFilterModal.open || shareModalCollection ||
+          renameTagTarget || confirmState || mobileSidebarOpen || contextMenu ||
+          document.querySelector('[aria-modal="true"], [data-bookmark-editing="true"]')) return;
+
+      if (event.key === '/' && !detailDrawer) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+      if (event.key.toLowerCase() === 'q' && canEditCurrentView && !detailDrawer) {
+        event.preventDefault();
+        setAddModalOpen(true);
+      }
+      if (event.key !== 'Delete' || event.shiftKey || !canEditCurrentView) return;
+      if (!detailDrawer && selectMode && !isSharedCollectionView && selectedIds.size > 0) {
+        event.preventDefault();
+        requestDeleteSelected();
+        return;
+      }
+      const focusedId = target?.closest<HTMLElement>('[data-bookmark-id]')?.dataset.bookmarkId;
+      const bookmark = detailDrawer?.bookmark ?? bookmarks.find((item) => item.id === focusedId);
+      if (bookmark && bookmark.workspace_id === (isSharedCollectionView ? activeSharedCollection?.workspace_id : activeWorkspace.id)) {
+        event.preventDefault();
+        handleDeleteBookmark(bookmark);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   const handleDropBookmarkToCollection = async (bookmarkId: string, collectionId: string | null) => {
     await api.updateBookmark(activeWorkspace.id, bookmarkId, { collection_id: collectionId });
@@ -1292,13 +1337,7 @@ function AuthenticatedShell({
             setSelectedIds(new Set());
             setSelectMode(false);
           }}
-          onRequestDelete={() =>
-            setConfirmState({
-              title: t('confirm.deleteSelectedTitle'),
-              message: t('confirm.deleteSelectedMsg', { count: selectedIds.size }),
-              onConfirm: () => handleBulkExecute({ action: 'delete' }),
-            })
-          }
+          onRequestDelete={requestDeleteSelected}
           onExecute={handleBulkExecute}
         />
       )}
@@ -1405,9 +1444,20 @@ function AuthenticatedShell({
         >
           {bookmarks.map((bm) => {
             const isSelected = selectedIds.has(bm.id);
+            const collectionName = bm.collection_id
+              ? bm.collection_name || collectionNames.get(bm.collection_id)
+              : t('common.uncollected');
             return (
               <article
                 key={bm.id}
+                data-bookmark-id={bm.id}
+                tabIndex={0}
+                aria-label={bm.title || bm.domain}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+                  event.preventDefault();
+                  handleBookmarkClick(bm);
+                }}
                 draggable={canEditWorkspace && !selectMode && !isSharedCollectionView}
                 onDragStart={(e) => handleBookmarkDragStart(e, bm)}
                 onClick={() => handleBookmarkClick(bm)}
@@ -1505,6 +1555,13 @@ function AuthenticatedShell({
                           <span className="truncate">
                             <HighlightText text={bm.domain} query={urlQuery} />
                           </span>
+                          {collectionName && (
+                            <span className="inline-flex min-w-0 items-center gap-1 text-slate-500"
+                              title={`${t('feed.collection')}: ${collectionName}`}>
+                              <FolderOpen aria-hidden="true" className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{collectionName}</span>
+                            </span>
+                          )}
                           {bm.link_status === 'broken' && (
                             <span className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
                               <AlertTriangle className="h-2.5 w-2.5" />
@@ -1674,6 +1731,7 @@ function AuthenticatedShell({
               onClick={() => setAddModalOpen(true)}
               title={t('nav.addSite')}
               aria-label={t('nav.addSite')}
+              aria-keyshortcuts="Q"
               className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-sky-600 px-2.5 text-sm font-medium text-white hover:bg-sky-700 md:px-3"
             >
               <Plus className="h-4 w-4" />
@@ -2653,6 +2711,7 @@ function AuthenticatedShell({
         <ConfirmModal
           title={confirmState.title}
           message={confirmState.message}
+          requireCloseOnError={confirmState.requireCloseOnError}
           onClose={() => setConfirmState(null)}
           onConfirm={confirmState.onConfirm}
         />

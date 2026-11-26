@@ -157,8 +157,17 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 		t.Fatal("expected fetch failure")
 	}
 	imageUnavailable.Store(true)
+	refreshed, err := mgr.ClipURL(ctx, ws.ID, bm.ID, user.ID, bm.URL)
+	if err != nil || refreshed.AssetCount != 1 || !strings.Contains(refreshed.ErrorMessage, "reused 1 cached file") {
+		t.Fatalf("partial reclip should reuse a cached image: %v, %s", err, refreshed.ErrorMessage)
+	}
+	// Legacy captures without a source map should retain the complete previous archive.
+	refreshed.AssetSources = nil
+	if err := st.UpsertBookmarkArchive(ctx, refreshed); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := mgr.ClipURL(ctx, ws.ID, bm.ID, user.ID, bm.URL); err == nil {
-		t.Fatal("partial reclip discarded a cached image")
+		t.Fatal("partial reclip should retain legacy captures")
 	}
 	preserved, err := st.GetBookmarkArchive(ctx, ws.ID, bm.ID)
 	if err != nil || preserved.ContentHTML != ar.ContentHTML || preserved.Status != "ready" {

@@ -68,12 +68,16 @@ func (a *apiHandler) handleExportWorkspace(w http.ResponseWriter, r *http.Reques
 		payload, err = transfer.ExportHTML(collections, bookmarks)
 		contentType = "text/html; charset=utf-8"
 		ext = "html"
-	case "csv":
-		payload, err = transfer.ExportCSV(collections, bookmarks)
+	case "csv", "excel_csv":
+		if format == "excel_csv" {
+			payload, err = transfer.ExportExcelCSV(collections, bookmarks)
+		} else {
+			payload, err = transfer.ExportCSV(collections, bookmarks)
+		}
 		contentType = "text/csv; charset=utf-8"
 		ext = "csv"
 	default:
-		writeError(w, http.StatusBadRequest, "unsupported export format (use json, html, or csv)")
+		writeError(w, http.StatusBadRequest, "unsupported export format (use json, html, csv, or excel_csv)")
 		return
 	}
 	if err != nil {

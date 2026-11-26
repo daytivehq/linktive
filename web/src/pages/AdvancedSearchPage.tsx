@@ -53,6 +53,8 @@ export function AdvancedSearchPage({ onBack, onTryQuery }: AdvancedSearchPagePro
     { op: 'is:favorite', desc: t('advSearch.opFavDesc') },
     { op: 'is:broken', desc: t('advSearch.opBrokenDesc') },
     { op: 'is:blocked', desc: t('advSearch.opBlockedDesc') },
+    { op: 'is:archived', desc: t('advSearch.opArchivedDesc') },
+    { op: '-is:archived', desc: t('advSearch.opNotArchivedDesc') },
   ];
 
   const comboExample =

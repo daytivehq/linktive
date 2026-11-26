@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  ExternalLink,
   Loader2,
   Search,
   Sparkles,
@@ -200,6 +201,19 @@ function OptionsApp() {
             {testing ? '연결 확인 중...' : '연결 테스트 및 저장'}
           </button>
         </form>
+
+        <nav aria-label="linktive 관련 링크" className="flex flex-wrap gap-2 text-sm">
+          {[
+            ['Chrome 웹 스토어', 'https://chromewebstore.google.com/detail/linktive/opalenmkjhflejpemlkbliiadchgjhje'],
+            ['GitHub', 'https://github.com/daytivehq/linktive'],
+          ].map(([label, href]) => (
+            <a key={href} href={href} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-100">
+              {label}
+              <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+            </a>
+          ))}
+        </nav>
 
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
           <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">

@@ -19,6 +19,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   const [mode, setMode] = useState<'login' | 'register'>(inviteToken ? 'register' : 'login');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [setupToken, setSetupToken] = useState('');
   const [password, setPassword] = useState('');
   const [requires2FA, setRequires2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
@@ -73,6 +74,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           name,
           password,
           invite_token: inviteToken || undefined,
+          setup_token: authConfig?.setup_token_required ? setupToken : undefined,
         });
         onSuccess(res.user, res.workspaces);
       }
@@ -155,6 +157,14 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
+          {mode === 'register' && authConfig?.setup_token_required && (
+            <label className="block text-xs font-medium text-slate-700">
+              {t('auth.setupToken')}
+              <input type="password" required value={setupToken} autoComplete="off"
+                onChange={(e) => setSetupToken(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </label>
+          )}
           {mode === 'register' && canRegister && (
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-700">

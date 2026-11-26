@@ -102,6 +102,8 @@ export function SettingsPage({
   const [profileEmail, setProfileEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [totpSetupPassword, setTotpSetupPassword] = useState('');
+  const [totpSetupCode, setTotpSetupCode] = useState('');
   const [totpSecret, setTotpSecret] = useState('');
   const [totpQrDataUrl, setTotpQrDataUrl] = useState('');
   const [totpEnableCode, setTotpEnableCode] = useState('');
@@ -272,11 +274,14 @@ export function SettingsPage({
     }
   };
 
-  const handleStart2FASetup = async () => {
+  const handleStart2FASetup = async (e: FormEvent) => {
+    e.preventDefault();
     setError('');
     setMessage('');
     try {
-      const res = await api.setup2FA();
+      const res = await api.setup2FA(totpSetupPassword, totpSetupCode);
+      setTotpSetupPassword('');
+      setTotpSetupCode('');
       setTotpSecret(res.secret);
       const qrUrl = await QRCode.toDataURL(res.otpauth_url, { width: 180, margin: 1 });
       setTotpQrDataUrl(qrUrl);
@@ -1132,16 +1137,24 @@ export function SettingsPage({
                 </span>
               </div>
 
-              {!user.totp_enabled ? (
-                !totpSecret ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleStart2FASetup()}
-                    className="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
-                  >
-                    {t('settings.twoFactorStart')}
+              {!totpSecret ? (
+                <form onSubmit={handleStart2FASetup} className="flex flex-wrap gap-2">
+                  <input type="password" required autoComplete="current-password"
+                    aria-label={t('settings.currentPassword')} placeholder={t('settings.currentPassword')}
+                    value={totpSetupPassword} onChange={(e) => setTotpSetupPassword(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs" />
+                  {user.totp_enabled && (
+                    <input type="text" inputMode="numeric" required maxLength={6}
+                      aria-label={t('settings.twoFactorCodePlaceholder')} placeholder={t('settings.twoFactorCodePlaceholder')}
+                      value={totpSetupCode} onChange={(e) => setTotpSetupCode(e.target.value.replace(/\D/g, ''))}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs" />
+                  )}
+                  <button type="submit"
+                    className="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700">
+                    {t(user.totp_enabled ? 'settings.twoFactorReplace' : 'settings.twoFactorStart')}
                   </button>
-                ) : (
+                </form>
+              ) : (
                   <form onSubmit={handleEnable2FA} className="space-y-3 rounded-lg bg-slate-50 p-3.5">
                     <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
                       {totpQrDataUrl && (
@@ -1186,9 +1199,14 @@ export function SettingsPage({
                         </div>
                       </div>
                     </div>
+                    <button type="button" onClick={() => {
+                      setTotpSecret('');
+                      setTotpQrDataUrl('');
+                      setTotpEnableCode('');
+                    }} className="text-xs text-slate-600 hover:underline">{t('common.cancel')}</button>
                   </form>
-                )
-              ) : (
+              )}
+              {user.totp_enabled && !totpSecret && (
                 <form onSubmit={handleDisable2FA} className="space-y-2 rounded-lg bg-rose-50/50 p-3">
                   <div className="text-xs font-medium text-slate-700">
                     {t('settings.twoFactorDisableTitle')}
@@ -1345,6 +1363,11 @@ export function SettingsPage({
                 >
                   <Download className="h-3.5 w-3.5 text-indigo-600" />
                   <span>{t('settings.exportCsv')}</span>
+                </a>
+                <a href={api.exportWorkspaceUrl(activeWorkspace.id, 'excel_csv')} download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                  <Download className="h-3.5 w-3.5 text-indigo-600" />
+                  <span>{t('settings.exportExcelCsv')}</span>
                 </a>
               </div>
             </section>

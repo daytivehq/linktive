@@ -10,6 +10,7 @@ import (
 
 var (
 	ErrNotFound             = errors.New("not found")
+	ErrBookmarkChanged      = errors.New("bookmark changed")
 	ErrAlreadyExists        = errors.New("already exists")
 	ErrDuplicateURL         = errors.New("duplicate bookmark url")
 	ErrInvalidParent        = errors.New("invalid parent collection")
@@ -31,6 +32,14 @@ func (e *DuplicateURLError) Unwrap() error {
 	return ErrDuplicateURL
 }
 
+// RestrictedArchivesError identifies selected bookmarks that cannot be deleted.
+type RestrictedArchivesError struct {
+	BookmarkIDs []string
+}
+
+func (e *RestrictedArchivesError) Error() string { return ErrPermissionDenied.Error() }
+func (e *RestrictedArchivesError) Unwrap() error { return ErrPermissionDenied }
+
 // SearchQuery represents parsed search terms and filter operators.
 type SearchQuery struct {
 	ActorID                string
@@ -49,6 +58,7 @@ type SearchQuery struct {
 	DateBefore             string
 	OnlyFavorite           *bool
 	LinkStatus             *domain.LinkStatus
+	HasArchive             *bool
 	IncludeArchiveContent  bool
 	Sort                   string // newest, oldest, title
 	Limit                  int
@@ -81,23 +91,25 @@ type CreateBookmarkInput struct {
 
 // UpdateBookmarkInput contains mutable fields for a bookmark.
 type UpdateBookmarkInput struct {
-	ActorID           string
-	WorkspaceID       string
-	BookmarkID        string
-	TargetWorkspaceID *string
-	CollectionID      *string
-	ClearCollection   bool
-	URL               *string
-	NormalizedURL     *string
-	Domain            *string
-	Title             *string
-	Description       *string
-	Note              *string
-	FaviconURL        *string
-	ThumbnailURL      *string
-	IsFavorite        *bool
-	Tags              []string
-	ReplaceTags       bool
+	ActorID              string
+	WorkspaceID          string
+	BookmarkID           string
+	RequiredCollectionID string
+	ExpectedUpdatedAt    *time.Time
+	TargetWorkspaceID    *string
+	CollectionID         *string
+	ClearCollection      bool
+	URL                  *string
+	NormalizedURL        *string
+	Domain               *string
+	Title                *string
+	Description          *string
+	Note                 *string
+	FaviconURL           *string
+	ThumbnailURL         *string
+	IsFavorite           *bool
+	Tags                 []string
+	ReplaceTags          bool
 }
 
 // BulkBookmarkInput defines a batch operation on bookmarks within a workspace.

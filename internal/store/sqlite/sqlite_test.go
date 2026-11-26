@@ -173,7 +173,7 @@ func TestArchiveRecoveryAndAccountRemoval(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer st.Close()
-			_, ws, err := st.CreateUserWithPersonalWorkspace(ctx, "owner@example.invalid", "owner", "hash")
+			owner, ws, err := st.CreateUserWithPersonalWorkspace(ctx, "owner@example.invalid", "owner", "hash")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -187,6 +187,18 @@ func TestArchiveRecoveryAndAccountRemoval(t *testing.T) {
 			bm, err := st.CreateBookmark(ctx, store.CreateBookmarkInput{WorkspaceID: ws.ID, CreatedBy: member.ID, URL: "https://example.invalid/qa", NormalizedURL: "https://example.invalid/qa"})
 			if err != nil {
 				t.Fatal(err)
+			}
+			newTitle := "Latest title"
+			updated, err := st.UpdateBookmark(ctx, store.UpdateBookmarkInput{
+				WorkspaceID: ws.ID, BookmarkID: bm.ID, ExpectedUpdatedAt: &bm.UpdatedAt, Title: &newTitle,
+			})
+			if err != nil || updated.Title != newTitle {
+				t.Fatalf("update with current version failed: %v", err)
+			}
+			if _, err := st.UpdateBookmark(ctx, store.UpdateBookmarkInput{
+				WorkspaceID: ws.ID, BookmarkID: bm.ID, ExpectedUpdatedAt: &bm.UpdatedAt, Title: &bm.Title,
+			}); !errors.Is(err, store.ErrBookmarkChanged) {
+				t.Fatalf("stale version returned %v, want conflict", err)
 			}
 			ar := domain.BookmarkArchive{WorkspaceID: ws.ID, BookmarkID: bm.ID, CreatedBy: member.ID, Status: "pending"}
 			if err := st.UpsertBookmarkArchive(ctx, ar); err != nil {
@@ -203,6 +215,21 @@ func TestArchiveRecoveryAndAccountRemoval(t *testing.T) {
 			ar.ContentText = "distinctive sample"
 			if err := st.UpsertBookmarkArchive(ctx, ar); err != nil {
 				t.Fatal(err)
+			}
+			for _, tc := range []struct {
+				actorID  string
+				archived bool
+				want     int
+			}{
+				{member.ID, true, 1},
+				{member.ID, false, 0},
+				{owner.ID, true, map[string]int{"owner_only": 0, "shared_members": 1}[scope]},
+				{owner.ID, false, map[string]int{"owner_only": 1, "shared_members": 0}[scope]},
+			} {
+				result, err := st.SearchBookmarks(ctx, store.SearchQuery{WorkspaceID: ws.ID, ActorID: tc.actorID, HasArchive: &tc.archived})
+				if err != nil || result.Total != tc.want {
+					t.Fatalf("archive filter %t got %d, want %d: %v", tc.archived, result.Total, tc.want, err)
+				}
 			}
 			if err := st.DeleteUser(ctx, member.ID); err != nil {
 				t.Fatal(err)

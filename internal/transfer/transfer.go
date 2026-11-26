@@ -44,9 +44,9 @@ type ImportBundle struct {
 }
 
 type linktiveExportDoc struct {
-	Service     string                    `json:"service"`
-	Version     int                       `json:"version"`
-	ExportedAt  string                    `json:"exported_at"`
+	Service     string                     `json:"service"`
+	Version     int                        `json:"version"`
+	ExportedAt  string                     `json:"exported_at"`
 	Collections []linktiveExportCollection `json:"collections"`
 	Bookmarks   []linktiveExportBookmark   `json:"bookmarks"`
 }
@@ -185,6 +185,15 @@ func ExportHTML(collections []domain.Collection, bookmarks []domain.Bookmark) ([
 
 // ExportCSV serializes bookmarks in Raindrop-friendly CSV with UTF-8 BOM for Excel compatibility.
 func ExportCSV(collections []domain.Collection, bookmarks []domain.Bookmark) ([]byte, error) {
+	return exportCSV(collections, bookmarks, false)
+}
+
+// ExportExcelCSV prefixes formula-like text in user-controlled fields.
+func ExportExcelCSV(collections []domain.Collection, bookmarks []domain.Bookmark) ([]byte, error) {
+	return exportCSV(collections, bookmarks, true)
+}
+
+func exportCSV(collections []domain.Collection, bookmarks []domain.Bookmark, excel bool) ([]byte, error) {
 	pathByColID := buildCollectionPathMap(collections)
 	var buf bytes.Buffer
 	buf.Write([]byte{0xEF, 0xBB, 0xBF})
@@ -200,7 +209,7 @@ func ExportCSV(collections []domain.Collection, bookmarks []domain.Bookmark) ([]
 		if b.IsFavorite {
 			fav = "true"
 		}
-		_ = w.Write([]string{
+		record := []string{
 			b.Title,
 			b.URL,
 			b.Description,
@@ -209,7 +218,17 @@ func ExportCSV(collections []domain.Collection, bookmarks []domain.Bookmark) ([]
 			strings.Join(b.Tags, ", "),
 			fav,
 			b.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		}
+		if excel {
+			for i, field := range record[:6] {
+				trimmed := strings.TrimSpace(field)
+				if (trimmed != "" && strings.ContainsRune("=+-@＝＋－＠", []rune(trimmed)[0])) ||
+					strings.HasPrefix(field, "\t") || strings.HasPrefix(field, "\r") || strings.HasPrefix(field, "\n") {
+					record[i] = "'" + field
+				}
+			}
+		}
+		_ = w.Write(record)
 	}
 	w.Flush()
 	return buf.Bytes(), w.Error()
@@ -414,12 +433,12 @@ func parseLinkwardenJSON(data []byte) (ImportBundle, error) {
 		Name string `json:"name"`
 	}
 	type lwLink struct {
-		Name         string          `json:"name"`
-		Title        string          `json:"title"`
-		URL          string          `json:"url"`
-		Description  string          `json:"description"`
-		Note         string          `json:"note"`
-		CollectionID any             `json:"collectionId"`
+		Name         string `json:"name"`
+		Title        string `json:"title"`
+		URL          string `json:"url"`
+		Description  string `json:"description"`
+		Note         string `json:"note"`
+		CollectionID any    `json:"collectionId"`
 		Collection   *struct {
 			Name string `json:"name"`
 		} `json:"collection"`

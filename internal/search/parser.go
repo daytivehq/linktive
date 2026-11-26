@@ -51,6 +51,9 @@ func ParseQuery(workspaceID, raw string) store.SearchQuery {
 			q.DateAfter = strings.Trim(token[6:], ",")
 		case strings.HasPrefix(lower, "before:") && len(token) > 7:
 			q.DateBefore = strings.Trim(token[7:], ",")
+		case lower == "is:archived" || lower == "-is:archived":
+			archived := lower == "is:archived"
+			q.HasArchive = &archived
 		case lower == "is:favorite":
 			t := true
 			q.OnlyFavorite = &t

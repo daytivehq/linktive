@@ -1,5 +1,6 @@
-# Personal documents (never upload)
-/docs/
+# Keep local review materials and artifacts private.
+/docs/*
+!/docs/chrome-web-store-guide.md
 
 # Binaries, test, and coverage outputs
 /bin/

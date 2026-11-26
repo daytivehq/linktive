@@ -57,7 +57,7 @@ interface BookmarkDetailDrawerProps {
     note: string;
     collection_id: string | null;
     tags: string[];
-    is_favorite: boolean;
+    expected_updated_at: string;
     target_workspace_id?: string;
   }) => Promise<void>;
   onDelete: (bm: Bookmark) => void;
@@ -70,6 +70,7 @@ interface BookmarkDetailDrawerProps {
 export function BookmarkDetailDrawer({
   bookmark,
   collections,
+  workspaces,
   activeWorkspaceId,
   canEdit,
   initialEditing = false,
@@ -93,10 +94,13 @@ export function BookmarkDetailDrawer({
   const [activeTab, setActiveTab] = useState<'info' | 'archive'>(initialTab);
   const [expanded, setExpanded] = useState(initialExpanded);
   const [editing, setEditing] = useState(initialEditing);
+  const [editVersion, setEditVersion] = useState(bookmark.updated_at);
+  const [conflict, setConflict] = useState<Bookmark | null>(null);
   const [url, setUrl] = useState(bookmark.url);
   const [title, setTitle] = useState(bookmark.title);
   const [description, setDescription] = useState(bookmark.description);
   const [note, setNote] = useState(bookmark.note);
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState(activeWorkspaceId);
   const [collectionId, setCollectionId] = useState(bookmark.collection_id ?? '');
   const [tagsText, setTagsText] = useState(bookmark.tags.join(', '));
   const [checkingLink, setCheckingLink] = useState(false);
@@ -117,6 +121,8 @@ export function BookmarkDetailDrawer({
   // Only synchronize mode/tab when opening a different bookmark or explicitly changing initial flags.
   useEffect(() => {
     setEditing(initialEditing);
+    setEditVersion(bookmark.updated_at);
+    setConflict(null);
     setActiveTab(initialTab);
     setExpanded(initialExpanded);
     setClipMode(defaultClipFormat);
@@ -222,6 +228,7 @@ export function BookmarkDetailDrawer({
     setTitle(bookmark.title);
     setDescription(bookmark.description);
     setNote(bookmark.note);
+    setTargetWorkspaceId(activeWorkspaceId);
     setCollectionId(bookmark.collection_id ?? '');
     setTagsText(bookmark.tags.join(', '));
   }, [bookmark, activeWorkspaceId]);
@@ -230,15 +237,20 @@ export function BookmarkDetailDrawer({
     () => flattenCollectionsTree(collections),
     [collections],
   );
+  const movingWorkspace = targetWorkspaceId !== activeWorkspaceId;
+  const writableWorkspaces = workspaces.filter(({ role }) => role === 'owner' || role === 'editor');
   const currentCollection = collections.find((c) => c.id === bookmark.collection_id);
 
-  const resetDraft = () => {
-    setUrl(bookmark.url);
-    setTitle(bookmark.title);
-    setDescription(bookmark.description);
-    setNote(bookmark.note);
-    setCollectionId(bookmark.collection_id ?? '');
-    setTagsText(bookmark.tags.join(', '));
+  const resetDraft = (bookmarkVersion = bookmark) => {
+    setEditVersion(bookmarkVersion.updated_at);
+    setConflict(null);
+    setUrl(bookmarkVersion.url);
+    setTitle(bookmarkVersion.title);
+    setDescription(bookmarkVersion.description);
+    setNote(bookmarkVersion.note);
+    setTargetWorkspaceId(activeWorkspaceId);
+    setCollectionId(bookmarkVersion.collection_id ?? '');
+    setTagsText(bookmarkVersion.tags.join(', '));
     setError('');
   };
 
@@ -253,17 +265,25 @@ export function BookmarkDetailDrawer({
         .filter(Boolean);
       await onUpdate({
         id: bookmark.id,
+        expected_updated_at: editVersion,
         url: url.trim(),
         title: title.trim() || bookmark.domain,
         description: description.trim(),
         note: note.trim(),
-        collection_id: collectionId || null,
+        collection_id: movingWorkspace ? null : collectionId || null,
+        target_workspace_id: movingWorkspace ? targetWorkspaceId : undefined,
         tags,
-        is_favorite: bookmark.is_favorite,
       });
       setEditing(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('drawer.updateFailed'));
+      if (err instanceof ApiError && err.status === 409 && err.existing?.id) {
+        setConflict(err.existing);
+        setError(t('drawer.editConflict'));
+      } else if (err instanceof ApiError && err.code === 'archive_restricted') {
+        setError(t('feed.archiveRestricted'));
+      } else {
+        setError(err instanceof Error ? err.message : t('drawer.updateFailed'));
+      }
     } finally {
       setSaving(false);
     }
@@ -329,7 +349,7 @@ export function BookmarkDetailDrawer({
         </div>
 
         {editing ? (
-          <form onSubmit={handleSave} className="flex flex-1 flex-col overflow-hidden">
+          <form data-bookmark-editing="true" onSubmit={handleSave} className="flex flex-1 flex-col overflow-hidden">
             <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 text-sm sm:p-6">
               <div className="space-y-3">
                 <div>
@@ -358,12 +378,26 @@ export function BookmarkDetailDrawer({
                 </div>
               </div>
 
+              {!isSharedCollectionView && writableWorkspaces.length > 1 && (
+                <label className="block text-xs font-semibold text-slate-500">
+                  {t('drawer.targetWorkspace')}
+                  <select value={targetWorkspaceId}
+                    onChange={(event) => setTargetWorkspaceId(event.target.value)}
+                    className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                    {writableWorkspaces.map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-slate-500">
                   {t('drawer.fieldCollection')}
                 </label>
                 <select
-                  value={collectionId}
+                  value={movingWorkspace ? '' : collectionId}
+                  disabled={movingWorkspace || isSharedCollectionView}
                   onChange={(e) => setCollectionId(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
                 >
@@ -419,6 +453,17 @@ export function BookmarkDetailDrawer({
                 <span>{t('drawer.updatedAt', { date: bookmark.updated_at.slice(0, 10) })}</span>
               </div>
 
+              {conflict && (
+                <div className="space-y-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                  <p className="font-semibold">{conflict.title}</p>
+                  <p className="break-all">{conflict.url}</p>
+                  {conflict.description && <p className="whitespace-pre-wrap">{conflict.description}</p>}
+                  {conflict.note && <p className="whitespace-pre-wrap">{conflict.note}</p>}
+                  <button type="button" onClick={() => resetDraft(conflict)} className="font-medium underline">
+                    {t('drawer.loadLatest')}
+                  </button>
+                </div>
+              )}
               {error && (
                 <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>
               )}
@@ -437,7 +482,7 @@ export function BookmarkDetailDrawer({
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || Boolean(conflict)}
                 className="rounded-lg bg-sky-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
               >
                 {saving ? t('common.saving') : t('common.save')}
@@ -635,11 +680,14 @@ export function BookmarkDetailDrawer({
               </div>
             ) : (
               <div className="flex flex-1 flex-col overflow-y-auto overscroll-contain p-4 sm:p-6">
+                {archiveError && archive?.status === 'ready' && (
+                  <p role="status" className="mb-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">{archiveError}</p>
+                )}
                 {loadingArchive ? (
                   <div className="py-12 text-center text-xs text-slate-400">
                     {t('drawer.loadingArchive')}
                   </div>
-                ) : archiveError ? (
+                ) : archiveError && archive?.status !== 'ready' ? (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
                     <p className="font-medium">{archiveError}</p>
                     {archiveStatusCode !== 403 && canEdit && !isSharedCollectionView && (

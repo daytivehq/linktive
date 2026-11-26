@@ -32,6 +32,8 @@ import type {
 export class ApiError extends Error {
   status: number;
   existing?: Bookmark;
+  code?: string;
+  blockedBookmarkIds: string[] = [];
 
   constructor(message: string, status: number, existing?: Bookmark) {
     super(message);
@@ -47,11 +49,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(
+    const error = new ApiError(
       typeof data.error === 'string' ? data.error : `HTTP ${res.status}`,
       res.status,
       data.existing as Bookmark | undefined,
     );
+    if (typeof data.code === 'string') error.code = data.code;
+    if (Array.isArray(data.blocked_bookmark_ids)) {
+      error.blockedBookmarkIds = data.blocked_bookmark_ids.filter((id: unknown) => typeof id === 'string');
+    }
+    throw error;
   }
   return data as T;
 }
@@ -66,7 +73,7 @@ export const api = {
 
   me: () => request<{ user: User; workspaces: Workspace[] }>('/api/v1/auth/me'),
 
-  register: (payload: { email: string; name: string; password: string; invite_token?: string }) =>
+  register: (payload: { email: string; name: string; password: string; invite_token?: string; setup_token?: string }) =>
     request<{ user: User; workspaces: Workspace[] }>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -101,9 +108,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  setup2FA: () =>
+  setup2FA: (password: string, code: string) =>
     request<{ secret: string; otpauth_url: string }>('/api/v1/auth/2fa/setup', {
       method: 'POST',
+      body: JSON.stringify({ password, code }),
     }),
 
   enable2FA: (code: string) =>
@@ -293,6 +301,7 @@ export const api = {
     wsID: string,
     bmID: string,
     payload: {
+      expected_updated_at?: string;
       target_workspace_id?: string;
       collection_id?: string | null;
       url?: string;
@@ -398,6 +407,7 @@ export const api = {
     enabled: boolean;
     interval_hours: number;
     keep_count: number;
+    include_assets: boolean;
   }) =>
     request<AutoBackupSettings>('/api/v1/admin/backups/settings', {
       method: 'PATCH',
@@ -531,6 +541,7 @@ export const api = {
     colID: string,
     bmID: string,
     payload: {
+      expected_updated_at?: string;
       url?: string;
       title?: string;
       description?: string;
@@ -549,7 +560,7 @@ export const api = {
       method: 'DELETE',
     }),
 
-  exportWorkspaceUrl: (wsID: string, format: 'json' | 'html' | 'csv') =>
+  exportWorkspaceUrl: (wsID: string, format: 'json' | 'html' | 'csv' | 'excel_csv') =>
     `/api/v1/workspaces/${wsID}/export?format=${format}`,
 
   importWorkspace: async (

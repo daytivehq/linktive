@@ -6,12 +6,14 @@ services:
     container_name: linktive
     restart: unless-stopped
     ports:
-      - "18080:8080"
+      - "${LINKTIVE_BIND_IP:+${LINKTIVE_BIND_IP}:}18080:8080"
     environment:
       LINKTIVE_ADDR: ":8080"
       LINKTIVE_DATA_DIR: "/data"
       LINKTIVE_DB_PATH: "/data/linktive.db"
       LINKTIVE_ALLOW_PRIVATE_NETWORKS: "${LINKTIVE_ALLOW_PRIVATE_NETWORKS:-false}"
+      LINKTIVE_TRUSTED_PROXY_IPS: "${LINKTIVE_TRUSTED_PROXY_IPS:-}"
+      LINKTIVE_SETUP_TOKEN: "${LINKTIVE_SETUP_TOKEN:-}"
       LINKTIVE_ENV: "production"
     volumes:
       - ./data:/data

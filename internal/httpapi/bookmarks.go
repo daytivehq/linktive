@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/linktive/linktive/internal/domain"
@@ -219,10 +220,10 @@ func (a *apiHandler) handleUpdateBookmark(w http.ResponseWriter, r *http.Request
 	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
 		return
 	}
-	a.updateBookmarkInWorkspace(w, r, wsID, bmID, true)
+	a.updateBookmarkInWorkspace(w, r, wsID, bmID, "")
 }
 
-func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Request, wsID, bmID string, allowMove bool) {
+func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Request, wsID, bmID, requiredCollectionID string) {
 	var raw map[string]any
 	if err := decodeJSON(r, &raw); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -236,7 +237,8 @@ func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		BookmarkID:  bmID,
 	}
 
-	if allowMove {
+	input.RequiredCollectionID = requiredCollectionID
+	if requiredCollectionID == "" {
 		if targetWS, ok := raw["target_workspace_id"].(string); ok && strings.TrimSpace(targetWS) != "" {
 			targetWS = strings.TrimSpace(targetWS)
 			if !a.authorizeWorkspace(w, r, targetWS, domain.RoleEditor) {
@@ -254,6 +256,15 @@ func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	if value, supplied := raw["expected_updated_at"]; supplied {
+		stamp, _ := value.(string)
+		expected, err := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid expected_updated_at")
+			return
+		}
+		input.ExpectedUpdatedAt = &expected
+	}
 	if u, ok := raw["url"].(string); ok && strings.TrimSpace(u) != "" {
 		fixedURL, err := urlutil.EnsureScheme(u)
 		if err != nil {
@@ -309,6 +320,15 @@ func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		}
 	}
 	updated, err := a.store.UpdateBookmark(r.Context(), input)
+	if errors.Is(err, store.ErrBookmarkChanged) {
+		response := map[string]any{"error": "bookmark was changed by another update"}
+		current, loadErr := a.store.GetBookmark(r.Context(), wsID, bmID)
+		if loadErr == nil && (requiredCollectionID == "" || current.CollectionID != nil && *current.CollectionID == requiredCollectionID) {
+			response["existing"] = current
+		}
+		writeJSON(w, http.StatusConflict, response)
+		return
+	}
 	if archiveForbidden(w, err) {
 		return
 	}
@@ -406,6 +426,15 @@ func (a *apiHandler) handleBulkBookmarks(w http.ResponseWriter, r *http.Request)
 		CollectionID: req.CollectionID,
 		Tags:         req.Tags,
 	})
+	var restricted *store.RestrictedArchivesError
+	if errors.As(err, &restricted) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error":                "selection includes private archives",
+			"code":                 "archive_restricted",
+			"blocked_bookmark_ids": restricted.BookmarkIDs,
+		})
+		return
+	}
 	if archiveForbidden(w, err) {
 		return
 	}

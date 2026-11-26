@@ -66,6 +66,7 @@ export interface User {
 }
 
 export interface AuthConfig {
+  setup_token_required?: boolean;
   registration_enabled: boolean;
   has_users: boolean;
   invite_valid?: boolean;
@@ -166,6 +167,7 @@ export interface Bookmark {
   id: string;
   workspace_id: string;
   collection_id?: string | null;
+  collection_name?: string;
   created_by: string;
   url: string;
   normalized_url: string;
@@ -281,13 +283,16 @@ export interface LinkCheckSummary {
 }
 
 export interface AutoBackupSettings {
+  include_assets: boolean;
   enabled: boolean;
   interval_hours: number;
   keep_count: number;
   last_run_at?: string | null;
+  last_failure_at?: string | null;
 }
 
 export interface BackupFileInfo {
+  includes_assets: boolean;
   filename: string;
   size_bytes: number;
   created_at: string;

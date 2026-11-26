@@ -184,6 +184,7 @@ func (s *Store) UpdateBookmark(ctx context.Context, input store.UpdateBookmarkIn
 		cur.Tags = normalizeTags(input.Tags)
 	}
 
+	previousUpdatedAt := cur.UpdatedAt
 	cur.UpdatedAt = time.Now().UTC()
 	nowStr := formatTime(cur.UpdatedAt)
 	tagsText := strings.Join(cur.Tags, " ")
@@ -196,6 +197,23 @@ func (s *Store) UpdateBookmark(ctx context.Context, input store.UpdateBookmarkIn
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if input.ExpectedUpdatedAt != nil || input.RequiredCollectionID != "" {
+		var current string
+		var collectionID sql.NullString
+		err := tx.QueryRowContext(ctx, `SELECT updated_at, collection_id FROM bookmarks WHERE id=? AND workspace_id=?`, cur.ID, input.WorkspaceID).Scan(&current, &collectionID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Bookmark{}, store.ErrNotFound
+		}
+		if err != nil {
+			return domain.Bookmark{}, err
+		}
+		if input.RequiredCollectionID != "" && (!collectionID.Valid || collectionID.String != input.RequiredCollectionID) {
+			return domain.Bookmark{}, store.ErrNotFound
+		}
+		if expected := input.ExpectedUpdatedAt; expected != nil && (!expected.Equal(parseTime(current)) || !expected.Equal(previousUpdatedAt)) {
+			return domain.Bookmark{}, store.ErrBookmarkChanged
+		}
+	}
 	if movedWorkspace {
 		if err := checkArchiveAccess(ctx, tx, input.WorkspaceID, cur.ID, input.ActorID); err != nil {
 			return domain.Bookmark{}, err
@@ -283,6 +301,7 @@ func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput
 	defer func() { _ = tx.Rollback() }()
 
 	var affected []string
+	var restricted []string
 	normalizedInputTags := normalizeTags(input.Tags)
 
 	for _, bmID := range input.BookmarkIDs {
@@ -310,6 +329,10 @@ func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput
 			}
 		case "delete":
 			if err := checkArchiveAccess(ctx, tx, input.WorkspaceID, bmID, input.ActorID); err != nil {
+				if errors.Is(err, store.ErrPermissionDenied) {
+					restricted = append(restricted, bmID)
+					continue
+				}
 				return nil, err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks WHERE id = ? AND workspace_id = ?`, bmID, input.WorkspaceID); err != nil {
@@ -340,6 +363,9 @@ func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput
 			return nil, store.ErrInvalidParent
 		}
 		affected = append(affected, bmID)
+	}
+	if len(restricted) > 0 {
+		return nil, &store.RestrictedArchivesError{BookmarkIDs: restricted}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -746,6 +772,15 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 		where = append(where, "b.link_status = ?")
 		args = append(args, string(*query.LinkStatus))
 	}
+	if query.HasArchive != nil {
+		operator := "EXISTS"
+		if !*query.HasArchive {
+			operator = "NOT EXISTS"
+		}
+		where = append(where, operator+` (SELECT 1 FROM bookmark_archives ar
+			WHERE ar.bookmark_id=b.id AND ar.workspace_id=b.workspace_id AND ar.status='ready' AND `+archiveVisible+`)`)
+		args = append(args, query.ActorID)
+	}
 	if query.Collection != "" {
 		where = append(where, "EXISTS (SELECT 1 FROM collections c WHERE c.id = b.collection_id AND LOWER(c.name) = LOWER(?))")
 		args = append(args, query.Collection)
@@ -870,8 +905,9 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 	listSQL := fmt.Sprintf(`
 		SELECT b.id, b.workspace_id, b.collection_id, b.created_by, b.url, b.normalized_url, b.domain,
 		       b.title, b.description, b.note, b.favicon_url, b.thumbnail_url, b.is_favorite, b.link_status,
-		       b.last_checked_at, b.created_at, b.updated_at
+		       b.last_checked_at, b.created_at, b.updated_at, COALESCE(c.name, '')
 		FROM bookmarks b
+		LEFT JOIN collections c ON c.id = b.collection_id AND c.workspace_id = b.workspace_id
 		WHERE %s
 		ORDER BY %s, b.id
 		LIMIT ? OFFSET ?
@@ -893,10 +929,12 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 	items := make([]domain.Bookmark, 0)
 	ids := make([]string, 0)
 	for rows.Next() {
-		bm, err := scanBookmarkRows(rows)
+		var collectionName string
+		bm, err := scanBookmarkRows(rows, &collectionName)
 		if err != nil {
 			return store.SearchResult{}, err
 		}
+		bm.CollectionName = collectionName
 		items = append(items, bm)
 		ids = append(ids, bm.ID)
 	}
@@ -1022,17 +1060,17 @@ func (s *Store) scanBookmark(row *sql.Row) (domain.Bookmark, error) {
 	return bm, nil
 }
 
-func scanBookmarkRows(rows *sql.Rows) (domain.Bookmark, error) {
+func scanBookmarkRows(rows *sql.Rows, extraFields ...any) (domain.Bookmark, error) {
 	var bm domain.Bookmark
 	var colID, lastChecked sql.NullString
 	var isFav int
 	var status, createdAt, updatedAt string
-	err := rows.Scan(
+	fields := []any{
 		&bm.ID, &bm.WorkspaceID, &colID, &bm.CreatedBy, &bm.URL, &bm.NormalizedURL, &bm.Domain,
 		&bm.Title, &bm.Description, &bm.Note, &bm.FaviconURL, &bm.ThumbnailURL, &isFav, &status,
 		&lastChecked, &createdAt, &updatedAt,
-	)
-	if err != nil {
+	}
+	if err := rows.Scan(append(fields, extraFields...)...); err != nil {
 		return domain.Bookmark{}, err
 	}
 	hydrateBookmarkFields(&bm, colID, lastChecked, isFav, status, createdAt, updatedAt)

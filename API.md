@@ -22,6 +22,7 @@ Password changes, two-factor authentication, API key management, and admin endpo
 - `GET /api/v1/health` — Server and SQLite health check (no auth required)
 - `GET /api/v1/auth/me` — Current account and workspaces
 - `PATCH /api/v1/auth/settings` — Save user preferences (`language`, click action, view mode, clip format, search defaults, etc.)
+- `POST /api/v1/auth/2fa/setup` — Start authenticator enrollment. Supply `password` and, for an already enabled account, the current OTP as `code`. Submit the new OTP to `POST /api/v1/auth/2fa/enable`.
 - `GET /api/v1/api-keys`, `POST /api/v1/api-keys`, `DELETE /api/v1/api-keys/{keyID}` — Manage API keys
 
 ### Workspaces
@@ -44,13 +45,15 @@ Password changes, two-factor authentication, API key management, and admin endpo
 ### Bookmarks · Search · Bulk Actions
 - `GET /api/v1/workspaces/{wsID}/bookmarks`
   - Query params: `q`, `collection_id` (`uncollected` supported), `include_children=true`, `favorite=true`, `tag`, `link_status` (`unknown|ok|broken|blocked`), `search_archive` (`true|false`), `sort` (`relevance|newest|oldest|title`), `limit`, `offset`
-  - Search operators: `tags:`, `-tags:`, `site:`, `in:`, `date:YYYY-MM-DD`, `after:YYYY-MM-DD`, `before:YYYY-MM-DD`, `is:favorite`, `is:broken`, `is:blocked`
+  - Search operators: `tags:`, `-tags:`, `site:`, `in:`, `date:YYYY-MM-DD`, `after:YYYY-MM-DD`, `before:YYYY-MM-DD`, `is:favorite`, `is:broken`, `is:blocked`, `is:archived`, `-is:archived`
+  - The archive operators match completed archives visible to the requester.
 - `POST /api/v1/workspaces/{wsID}/bookmarks`
   - `{"url": "https://example.com", "collection_id": null, "tags": ["dev"], "allow_duplicate": false, "clip_now": false}`
   - Leave `title` / `description` empty to auto-fetch metadata and favicon.
   - Duplicate normalized URLs return `409 Conflict`. The response includes `existing` only when the caller can view that bookmark.
 - `GET /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Get bookmark
 - `PATCH /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Update bookmark or move to `target_workspace_id`
+  - Pass the last observed `updated_at` as `expected_updated_at` to receive `409` and the latest bookmark on an editing conflict.
 - `DELETE /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Delete bookmark and its archived copy/assets
 - `POST /api/v1/workspaces/{wsID}/bookmarks/bulk`
   - `action`: `favorite`, `unfavorite`, `move`, `delete`, `tags_add`, `tags_set`, `tags_remove`
@@ -78,7 +81,8 @@ Password changes, two-factor authentication, API key management, and admin endpo
 - `PATCH /api/v1/workspaces/{wsID}/tags/{tagName}` — Rename tag (auto-merges if target name exists)
 - `DELETE /api/v1/workspaces/{wsID}/tags/{tagName}` — Delete tag
 - `GET /api/v1/workspaces/{wsID}/stats` — Counts for all, favorites, uncollected, broken, blocked, and duplicate bookmarks
-- `GET /api/v1/workspaces/{wsID}/export?format=json|html|csv` — Export workspace data
+- `GET /api/v1/workspaces/{wsID}/export?format=json|html|csv|excel_csv` — Export workspace data
+  - `excel_csv` exports formula-like cells as text. Use JSON for lossless values.
 - `POST /api/v1/workspaces/{wsID}/import` — Import (`multipart/form-data`: `file`, `format=auto|linktive_json|html|raindrop_csv|linkwarden_json|karakeep_json`, `skip_duplicates=true`)
 
 ### Admin · Backups · Archive Policies (Admin Only)
@@ -86,9 +90,9 @@ Password changes, two-factor authentication, API key management, and admin endpo
 - `PATCH /api/v1/admin/archive-settings` — Configure archive size limits (`limit_enabled`, `max_asset_mb`, `max_bookmark_mb`)
 - `POST /api/v1/admin/assets/cleanup` — Remove unreferenced orphan asset files
 - `GET /api/v1/admin/backups` — Get auto-backup settings and list snapshots
-- `PATCH /api/v1/admin/backups/settings` — Update auto-backup schedule, interval (hours), and retention count
-- `POST /api/v1/admin/backups/run` — Run an online SQLite snapshot backup immediately
-- `GET /api/v1/admin/backups/{filename}`, `DELETE /api/v1/admin/backups/{filename}` — Download or delete a backup snapshot
+- `PATCH /api/v1/admin/backups/settings` — Configure `enabled`, `interval_hours`, `keep_count`, and `include_assets` (defaults to `false`)
+- `POST /api/v1/admin/backups/run` — Create a backup using the saved scope. DB-only creates a `.db`; full backup creates a `.zip` with `linktive.db` and `assets/`.
+- `GET /api/v1/admin/backups/{filename}`, `DELETE /api/v1/admin/backups/{filename}` — Download or delete a backup. Backup entries include `includes_assets`.
 
 ---
 

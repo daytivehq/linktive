@@ -82,7 +82,10 @@ func archiveForbidden(w http.ResponseWriter, err error) bool {
 	if !errors.Is(err, store.ErrPermissionDenied) {
 		return false
 	}
-	writeError(w, http.StatusForbidden, "archive sharing is disabled by its creator")
+	writeJSON(w, http.StatusForbidden, map[string]string{
+		"error": "archive sharing is disabled by its creator",
+		"code":  "archive_restricted",
+	})
 	return true
 }
 

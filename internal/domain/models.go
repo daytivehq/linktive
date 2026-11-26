@@ -59,6 +59,7 @@ type User struct {
 
 // AuthConfig exposes public registration and invite status.
 type AuthConfig struct {
+	SetupTokenRequired  bool `json:"setup_token_required,omitempty"`
 	RegistrationEnabled bool `json:"registration_enabled"`
 	HasUsers            bool `json:"has_users"`
 	InviteValid         bool `json:"invite_valid,omitempty"`
@@ -152,14 +153,14 @@ type SharedCollectionView struct {
 
 // PublicBookmark is a privacy-filtered bookmark projection for public collection links.
 type PublicBookmark struct {
-	ID         string    `json:"id"`
-	URL        string    `json:"url"`
-	Domain     string    `json:"domain"`
-	Title      string    `json:"title"`
-	Description string   `json:"description"`
-	FaviconURL string    `json:"favicon_url"`
-	Tags       []string  `json:"tags"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	URL         string    `json:"url"`
+	Domain      string    `json:"domain"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	FaviconURL  string    `json:"favicon_url"`
+	Tags        []string  `json:"tags"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // PublicCollectionView is returned for unauthenticated public collection links.
@@ -170,26 +171,27 @@ type PublicCollectionView struct {
 
 // Bookmark represents a saved URL with extracted metadata, user note, and tags.
 type Bookmark struct {
-	ID            string     `json:"id"`
-	WorkspaceID   string     `json:"workspace_id"`
-	CollectionID  *string    `json:"collection_id,omitempty"`
-	CreatedBy     string     `json:"created_by"`
-	URL           string     `json:"url"`
-	NormalizedURL string     `json:"normalized_url"`
-	Domain        string     `json:"domain"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description"`
-	Note          string     `json:"note"`
-	FaviconURL    string     `json:"favicon_url"`
-	ThumbnailURL  string     `json:"thumbnail_url"`
-	IsFavorite    bool       `json:"is_favorite"`
-	LinkStatus    LinkStatus `json:"link_status"`
-	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
-	ArchiveStatus string     `json:"archive_status,omitempty"`
-	ArchiveBytes  int64      `json:"archive_bytes,omitempty"`
-	Tags          []string   `json:"tags"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID             string     `json:"id"`
+	WorkspaceID    string     `json:"workspace_id"`
+	CollectionID   *string    `json:"collection_id,omitempty"`
+	CollectionName string     `json:"collection_name,omitempty"`
+	CreatedBy      string     `json:"created_by"`
+	URL            string     `json:"url"`
+	NormalizedURL  string     `json:"normalized_url"`
+	Domain         string     `json:"domain"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	Note           string     `json:"note"`
+	FaviconURL     string     `json:"favicon_url"`
+	ThumbnailURL   string     `json:"thumbnail_url"`
+	IsFavorite     bool       `json:"is_favorite"`
+	LinkStatus     LinkStatus `json:"link_status"`
+	LastCheckedAt  *time.Time `json:"last_checked_at,omitempty"`
+	ArchiveStatus  string     `json:"archive_status,omitempty"`
+	ArchiveBytes   int64      `json:"archive_bytes,omitempty"`
+	Tags           []string   `json:"tags"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // TagSummary represents a tag and its bookmark usage count within a workspace.
@@ -234,19 +236,22 @@ type SavedFilter struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// AutoBackupSettings configures scheduled SQLite snapshots on the server.
+// AutoBackupSettings configures scheduled backups on the server.
 type AutoBackupSettings struct {
 	Enabled       bool       `json:"enabled"`
 	IntervalHours int        `json:"interval_hours"`
 	KeepCount     int        `json:"keep_count"`
+	IncludeAssets bool       `json:"include_assets"`
 	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
+	LastFailureAt *time.Time `json:"last_failure_at,omitempty"`
 }
 
-// BackupFileInfo describes a single stored database backup artifact.
+// BackupFileInfo describes a stored database snapshot or full backup.
 type BackupFileInfo struct {
-	Filename  string    `json:"filename"`
-	SizeBytes int64     `json:"size_bytes"`
-	CreatedAt time.Time `json:"created_at"`
+	IncludesAssets bool      `json:"includes_assets"`
+	Filename       string    `json:"filename"`
+	SizeBytes      int64     `json:"size_bytes"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // LinkCheckSummary reports results of a workspace-wide link health check.
@@ -260,23 +265,24 @@ type LinkCheckSummary struct {
 
 // BookmarkArchive stores a locally archived copy (readable view and/or original HTML layout) of a bookmarked web page.
 type BookmarkArchive struct {
-	BookmarkID   string    `json:"bookmark_id"`
-	WorkspaceID  string    `json:"workspace_id"`
-	CreatedBy    string    `json:"created_by"`
-	Source       string    `json:"source"`
-	ArchiveMode  string    `json:"archive_mode"` // readable, html, both
-	Status       string    `json:"status"`       // pending, ready, failed
-	ErrorMessage string    `json:"error_message,omitempty"`
-	Title        string    `json:"title"`
-	Byline       string    `json:"byline,omitempty"`
-	SiteName     string    `json:"site_name,omitempty"`
-	ContentHTML  string    `json:"content_html"`
-	SnapshotHTML string    `json:"snapshot_html"`
-	ContentText  string    `json:"content_text"`
-	AssetCount   int       `json:"asset_count"`
-	TotalBytes   int64     `json:"total_bytes"`
-	ArchivedAt   time.Time `json:"archived_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	AssetSources map[string]string `json:"-"`
+	BookmarkID   string            `json:"bookmark_id"`
+	WorkspaceID  string            `json:"workspace_id"`
+	CreatedBy    string            `json:"created_by"`
+	Source       string            `json:"source"`
+	ArchiveMode  string            `json:"archive_mode"` // readable, html, both
+	Status       string            `json:"status"`       // pending, ready, failed
+	ErrorMessage string            `json:"error_message,omitempty"`
+	Title        string            `json:"title"`
+	Byline       string            `json:"byline,omitempty"`
+	SiteName     string            `json:"site_name,omitempty"`
+	ContentHTML  string            `json:"content_html"`
+	SnapshotHTML string            `json:"snapshot_html"`
+	ContentText  string            `json:"content_text"`
+	AssetCount   int               `json:"asset_count"`
+	TotalBytes   int64             `json:"total_bytes"`
+	ArchivedAt   time.Time         `json:"archived_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 // ArchivePolicy defines server-wide safety limits for archived pages and image assets.
@@ -288,26 +294,26 @@ type ArchivePolicy struct {
 
 // WorkspaceUsage summarizes counts and storage usage inside a workspace.
 type WorkspaceUsage struct {
-	WorkspaceID      string `json:"workspace_id"`
-	BookmarkCount    int    `json:"bookmark_count"`
-	TagCount         int    `json:"tag_count"`
-	CollectionCount  int    `json:"collection_count"`
-	ArchivedCount    int    `json:"archived_count"`
-	ArchiveAssetCount int   `json:"archive_asset_count"`
-	ArchiveBytes     int64  `json:"archive_bytes"`
+	WorkspaceID       string `json:"workspace_id"`
+	BookmarkCount     int    `json:"bookmark_count"`
+	TagCount          int    `json:"tag_count"`
+	CollectionCount   int    `json:"collection_count"`
+	ArchivedCount     int    `json:"archived_count"`
+	ArchiveAssetCount int    `json:"archive_asset_count"`
+	ArchiveBytes      int64  `json:"archive_bytes"`
 }
 
 // AdminUsage summarizes server-wide counts and storage usage for administrators.
 type AdminUsage struct {
-	TotalUsers        int           `json:"total_users"`
-	TotalWorkspaces   int           `json:"total_workspaces"`
-	TotalBookmarks    int           `json:"total_bookmarks"`
-	TotalTags         int           `json:"total_tags"`
-	TotalArchived     int           `json:"total_archived"`
-	DBSizeBytes       int64         `json:"db_size_bytes"`
-	AssetsSizeBytes   int64         `json:"assets_size_bytes"`
-	AssetsFileCount   int           `json:"assets_file_count"`
-	BackupsSizeBytes  int64         `json:"backups_size_bytes"`
-	BackupsFileCount  int           `json:"backups_file_count"`
-	ArchivePolicy     ArchivePolicy `json:"archive_policy"`
+	TotalUsers       int           `json:"total_users"`
+	TotalWorkspaces  int           `json:"total_workspaces"`
+	TotalBookmarks   int           `json:"total_bookmarks"`
+	TotalTags        int           `json:"total_tags"`
+	TotalArchived    int           `json:"total_archived"`
+	DBSizeBytes      int64         `json:"db_size_bytes"`
+	AssetsSizeBytes  int64         `json:"assets_size_bytes"`
+	AssetsFileCount  int           `json:"assets_file_count"`
+	BackupsSizeBytes int64         `json:"backups_size_bytes"`
+	BackupsFileCount int           `json:"backups_file_count"`
+	ArchivePolicy    ArchivePolicy `json:"archive_policy"`
 }
