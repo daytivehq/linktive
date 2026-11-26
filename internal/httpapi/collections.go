@@ -312,6 +312,7 @@ func (a *apiHandler) handleListSharedCollectionBookmarks(w http.ResponseWriter, 
 		return
 	}
 	sq := buildSearchQuery(r, access.WorkspaceID)
+	sq.IncludeSubcollections = false
 	sq.CollectionID = &colID
 	res, err := a.store.SearchBookmarks(r.Context(), sq)
 	if err != nil {
@@ -375,7 +376,11 @@ func (a *apiHandler) handleDeleteSharedCollectionBookmark(w http.ResponseWriter,
 		writeError(w, http.StatusInternalServerError, "failed to verify bookmark")
 		return
 	}
-	if err := a.store.DeleteBookmark(r.Context(), access.WorkspaceID, bmID); err != nil {
+	actor, _ := userFromContext(r.Context())
+	if err := a.store.DeleteBookmark(r.Context(), access.WorkspaceID, bmID, actor.ID); err != nil {
+		if archiveForbidden(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete bookmark")
 		return
 	}

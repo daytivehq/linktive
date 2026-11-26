@@ -224,13 +224,16 @@ func (s *Store) UpdateBookmark(ctx context.Context, input store.UpdateBookmarkIn
 }
 
 // DeleteBookmark removes a bookmark and its FTS5 index row.
-func (s *Store) DeleteBookmark(ctx context.Context, workspaceID, bookmarkID string) error {
+func (s *Store) DeleteBookmark(ctx context.Context, workspaceID, bookmarkID, actorID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := checkArchiveAccess(ctx, tx, workspaceID, bookmarkID, actorID); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM bookmarks WHERE id = ? AND workspace_id = ?`, bookmarkID, workspaceID)
 	if err != nil {
 		return err
@@ -292,6 +295,9 @@ func (s *Store) BulkBookmarks(ctx context.Context, input store.BulkBookmarkInput
 				return nil, err
 			}
 		case "delete":
+			if err := checkArchiveAccess(ctx, tx, input.WorkspaceID, bmID, input.ActorID); err != nil {
+				return nil, err
+			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks WHERE id = ? AND workspace_id = ?`, bmID, input.WorkspaceID); err != nil {
 				return nil, err
 			}
@@ -785,10 +791,10 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 			if query.IncludeArchiveContent {
 				where = append(where, `(
 					b.id IN (SELECT bookmark_id FROM bookmarks_fts WHERE workspace_id = ? AND bookmarks_fts MATCH ?)
-					OR b.id IN (SELECT bookmark_id FROM bookmark_archives_fts WHERE workspace_id = ? AND bookmark_archives_fts MATCH ?)
+					OR (b.id IN (SELECT bookmark_id FROM bookmark_archives_fts WHERE workspace_id = ? AND bookmark_archives_fts MATCH ?) AND EXISTS (SELECT 1 FROM bookmark_archives ar WHERE ar.bookmark_id=b.id AND `+archiveVisible+`))
 				)`)
 				lit := search.QuoteFTS5Literal(compact)
-				args = append(args, query.WorkspaceID, lit, query.WorkspaceID, lit)
+				args = append(args, query.WorkspaceID, lit, query.WorkspaceID, lit, query.ActorID)
 			} else {
 				where = append(where, `b.id IN (
 					SELECT bookmark_id FROM bookmarks_fts WHERE workspace_id = ? AND bookmarks_fts MATCH ?
@@ -800,9 +806,9 @@ func (s *Store) SearchBookmarks(ctx context.Context, query store.SearchQuery) (s
 			if query.IncludeArchiveContent {
 				where = append(where, `(
 					INSTR(b.compact_text, ?) > 0
-					OR EXISTS (SELECT 1 FROM bookmark_archives_fts af WHERE af.bookmark_id = b.id AND INSTR(af.compact_text, ?) > 0)
+					OR EXISTS (SELECT 1 FROM bookmark_archives_fts af WHERE af.bookmark_id = b.id AND INSTR(af.compact_text, ?) > 0 AND EXISTS (SELECT 1 FROM bookmark_archives ar WHERE ar.bookmark_id=b.id AND `+archiveVisible+`))
 				)`)
-				args = append(args, compact, compact)
+				args = append(args, compact, compact, query.ActorID)
 			} else {
 				where = append(where, "INSTR(b.compact_text, ?) > 0")
 				args = append(args, compact)

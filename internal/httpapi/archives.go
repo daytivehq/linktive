@@ -61,6 +61,14 @@ func (a *apiHandler) canViewArchive(ctx context.Context, actor domain.User, ar d
 	return parseArchiveShareScope(creator) == "shared_members"
 }
 
+func archiveForbidden(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, store.ErrPermissionDenied) {
+		return false
+	}
+	writeError(w, http.StatusForbidden, "archive sharing is disabled by its creator")
+	return true
+}
+
 func (a *apiHandler) handleGetBookmarkArchive(w http.ResponseWriter, r *http.Request) {
 	wsID := chi.URLParam(r, "wsID")
 	bmID := chi.URLParam(r, "bmID")
@@ -136,6 +144,9 @@ func (a *apiHandler) handleArchiveBookmark(w http.ResponseWriter, r *http.Reques
 	} else {
 		ar, err = a.clipper.ClipURLWithOptions(r.Context(), wsID, bmID, actor.ID, bm.URL, opts)
 	}
+	if archiveForbidden(w, err) {
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{
 			"error":   err.Error(),
@@ -152,11 +163,12 @@ func (a *apiHandler) handleDeleteBookmarkArchive(w http.ResponseWriter, r *http.
 	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
 		return
 	}
-	err := a.store.DeleteBookmarkArchive(r.Context(), wsID, bmID)
+	actor, _ := userFromContext(r.Context())
+	err := a.store.DeleteBookmarkArchive(r.Context(), wsID, bmID, actor.ID)
+	if archiveForbidden(w, err) {
+		return
+	}
 	if errors.Is(err, store.ErrNotFound) {
-		if a.clipper != nil {
-			a.clipper.DeleteBookmarkAssets(wsID, bmID)
-		}
 		writeError(w, http.StatusNotFound, "archive not found")
 		return
 	}
@@ -349,15 +361,18 @@ func (a *apiHandler) handleClearWorkspaceArchives(w http.ResponseWriter, r *http
 	if !a.authorizeWorkspace(w, r, wsID, domain.RoleEditor) {
 		return
 	}
-	deleted, err := a.store.ClearWorkspaceArchives(r.Context(), wsID)
+	actor, _ := userFromContext(r.Context())
+	deleted, err := a.store.ClearWorkspaceArchives(r.Context(), wsID, actor.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clear workspace archives")
 		return
 	}
 	if a.clipper != nil {
-		a.clipper.DeleteWorkspaceAssets(wsID)
+		for _, id := range deleted {
+			a.clipper.DeleteBookmarkAssets(wsID, id)
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]int64{"deleted": deleted})
+	writeJSON(w, http.StatusOK, map[string]int{"deleted": len(deleted)})
 }
 
 func (a *apiHandler) handleGetWorkspaceUsage(w http.ResponseWriter, r *http.Request) {

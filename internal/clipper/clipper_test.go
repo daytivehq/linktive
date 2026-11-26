@@ -154,7 +154,7 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 		t.Fatal("last successful image lost")
 	}
 	// Deleting bookmark leaves asset dir orphaned until CleanupOrphanAssets cleans it up.
-	if err := st.DeleteBookmark(ctx, ws.ID, bm.ID); err != nil {
+	if err := st.DeleteBookmark(ctx, ws.ID, bm.ID, user.ID); err != nil {
 		t.Fatalf("DeleteBookmark: %v", err)
 	}
 	removed, freed, err := mgr.CleanupOrphanAssets(ctx)

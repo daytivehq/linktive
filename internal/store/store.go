@@ -33,24 +33,25 @@ func (e *DuplicateURLError) Unwrap() error {
 
 // SearchQuery represents parsed search terms and filter operators.
 type SearchQuery struct {
+	ActorID               string
 	WorkspaceID           string
 	CollectionID          *string
 	IncludeSubcollections bool
 	Raw                   string
-	Terms        []string
-	IncludeTags  []string
-	ExcludeTags  []string
-	Domains      []string
-	Collection   string
-	DateExact    string
-	DateAfter    string
-	DateBefore   string
+	Terms                 []string
+	IncludeTags           []string
+	ExcludeTags           []string
+	Domains               []string
+	Collection            string
+	DateExact             string
+	DateAfter             string
+	DateBefore            string
 	OnlyFavorite          *bool
 	LinkStatus            *domain.LinkStatus
 	IncludeArchiveContent bool
 	Sort                  string // newest, oldest, title
-	Limit        int
-	Offset       int
+	Limit                 int
+	Offset                int
 }
 
 // SearchResult wraps matched bookmarks with total hit count.
@@ -79,6 +80,7 @@ type CreateBookmarkInput struct {
 
 // UpdateBookmarkInput contains mutable fields for a bookmark.
 type UpdateBookmarkInput struct {
+	ActorID           string
 	WorkspaceID       string
 	BookmarkID        string
 	TargetWorkspaceID *string
@@ -99,6 +101,7 @@ type UpdateBookmarkInput struct {
 
 // BulkBookmarkInput defines a batch operation on bookmarks within a workspace.
 type BulkBookmarkInput struct {
+	ActorID      string
 	WorkspaceID  string
 	BookmarkIDs  []string
 	Action       string // favorite, unfavorite, move, delete, tags_add, tags_set, tags_remove
@@ -200,7 +203,7 @@ type Store interface {
 	CreateBookmark(ctx context.Context, input CreateBookmarkInput) (domain.Bookmark, error)
 	GetBookmark(ctx context.Context, workspaceID, bookmarkID string) (domain.Bookmark, error)
 	UpdateBookmark(ctx context.Context, input UpdateBookmarkInput) (domain.Bookmark, error)
-	DeleteBookmark(ctx context.Context, workspaceID, bookmarkID string) error
+	DeleteBookmark(ctx context.Context, workspaceID, bookmarkID, actorID string) error
 	BulkBookmarks(ctx context.Context, input BulkBookmarkInput) ([]string, error)
 	UpdateBookmarkLinkStatus(ctx context.Context, workspaceID, bookmarkID string, status domain.LinkStatus, checkedAt time.Time) error
 	ListWorkspaceBookmarksForCheck(ctx context.Context, workspaceID string, onlyUnchecked bool) ([]domain.Bookmark, error)
@@ -225,8 +228,8 @@ type Store interface {
 	// Web Clipper Archives, Policies & Usage
 	UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArchive) error
 	GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) (domain.BookmarkArchive, error)
-	DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) error
-	ClearWorkspaceArchives(ctx context.Context, workspaceID string) (int64, error)
+	DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmarkID, actorID string) error
+	ClearWorkspaceArchives(ctx context.Context, workspaceID, actorID string) ([]string, error)
 	ArchiveExists(ctx context.Context, workspaceID, bookmarkID string) (bool, error)
 	GetArchivePolicy(ctx context.Context) (domain.ArchivePolicy, error)
 	SaveArchivePolicy(ctx context.Context, policy domain.ArchivePolicy) error

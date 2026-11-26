@@ -32,6 +32,8 @@ func (a *apiHandler) handleListBookmarks(w http.ResponseWriter, r *http.Request)
 func buildSearchQuery(r *http.Request, wsID string) store.SearchQuery {
 	qp := r.URL.Query()
 	sq := search.ParseQuery(wsID, qp.Get("q"))
+	actor, _ := userFromContext(r.Context())
+	sq.ActorID = actor.ID
 	sq.Sort = strings.TrimSpace(qp.Get("sort"))
 	if sq.Sort == "" {
 		if sq.Raw != "" && len(sq.Terms) > 0 {
@@ -152,6 +154,17 @@ func (a *apiHandler) createBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 	})
 	var dupErr *store.DuplicateURLError
 	if errors.As(err, &dupErr) {
+		if role, err := a.store.GetWorkspaceRole(r.Context(), wsID, user.ID); err != nil || role.RoleLevel() < domain.RoleViewer.RoleLevel() {
+			col := dupErr.Existing.CollectionID
+			if col == nil {
+				writeError(w, http.StatusConflict, "duplicate url exists in workspace")
+				return
+			}
+			if _, err := a.store.GetSharedCollectionAccess(r.Context(), user.ID, *col); err != nil {
+				writeError(w, http.StatusConflict, "duplicate url exists in workspace")
+				return
+			}
+		}
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":    "duplicate url exists in workspace",
 			"existing": dupErr.Existing,
@@ -217,7 +230,9 @@ func (a *apiHandler) updateBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	actor, _ := userFromContext(r.Context())
 	input := store.UpdateBookmarkInput{
+		ActorID:     actor.ID,
 		WorkspaceID: wsID,
 		BookmarkID:  bmID,
 	}
@@ -301,7 +316,11 @@ func (a *apiHandler) handleDeleteBookmark(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err := a.store.DeleteBookmark(r.Context(), wsID, bmID)
+	actor, _ := userFromContext(r.Context())
+	err := a.store.DeleteBookmark(r.Context(), wsID, bmID, actor.ID)
+	if archiveForbidden(w, err) {
+		return
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "bookmark not found")
 		return
@@ -357,13 +376,18 @@ func (a *apiHandler) handleBulkBookmarks(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "bookmark_ids and action are required")
 		return
 	}
+	actor, _ := userFromContext(r.Context())
 	affected, err := a.store.BulkBookmarks(r.Context(), store.BulkBookmarkInput{
+		ActorID:      actor.ID,
 		WorkspaceID:  wsID,
 		BookmarkIDs:  req.BookmarkIDs,
 		Action:       req.Action,
 		CollectionID: req.CollectionID,
 		Tags:         req.Tags,
 	})
+	if archiveForbidden(w, err) {
+		return
+	}
 	if errors.Is(err, store.ErrInvalidParent) {
 		writeError(w, http.StatusBadRequest, "invalid bulk action or collection_id")
 		return

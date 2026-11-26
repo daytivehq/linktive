@@ -14,6 +14,26 @@ import (
 	"github.com/linktive/linktive/internal/store"
 )
 
+// The same predicate governs archive search and transactional changes. Missing
+// creators and absent sharing preferences are private by default.
+const archiveVisible = `(ar.created_by = '' OR ar.created_by = ? OR EXISTS (
+	SELECT 1 FROM users u WHERE u.id = ar.created_by
+	AND CASE WHEN json_valid(u.settings_json) THEN json_extract(u.settings_json, '$.archive_share_scope') END = 'shared_members'
+))`
+
+func checkArchiveAccess(ctx context.Context, tx *sql.Tx, wsID, bmID, actorID string) error {
+	var hidden bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bookmark_archives ar
+		WHERE ar.workspace_id = ? AND ar.bookmark_id = ? AND NOT `+archiveVisible+`)`, wsID, bmID, actorID).Scan(&hidden)
+	if err != nil {
+		return err
+	}
+	if hidden {
+		return store.ErrPermissionDenied
+	}
+	return nil
+}
+
 // UpsertBookmarkArchive stores or updates a bookmark's archived content and updates its archive FTS5 index.
 func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArchive) error {
 	now := time.Now().UTC()
@@ -28,6 +48,16 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := checkArchiveAccess(ctx, tx, ar.WorkspaceID, ar.BookmarkID, ar.CreatedBy); err != nil {
+		return err
+	}
+	var present bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bookmarks WHERE id=? AND workspace_id=?)`, ar.BookmarkID, ar.WorkspaceID).Scan(&present); err != nil {
+		return err
+	}
+	if !present {
+		return store.ErrNotFound
+	}
 	if strings.TrimSpace(ar.ArchiveMode) == "" {
 		ar.ArchiveMode = "readable"
 	}
@@ -40,7 +70,7 @@ func (s *Store) UpsertBookmarkArchive(ctx context.Context, ar domain.BookmarkArc
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(bookmark_id) DO UPDATE SET
 			workspace_id = excluded.workspace_id,
-			created_by = excluded.created_by,
+			created_by = bookmark_archives.created_by,
 			source = excluded.source,
 			archive_mode = excluded.archive_mode,
 			status = excluded.status,
@@ -110,13 +140,16 @@ func (s *Store) GetBookmarkArchive(ctx context.Context, workspaceID, bookmarkID 
 }
 
 // DeleteBookmarkArchive removes only the archived content and FTS entry without deleting the bookmark itself.
-func (s *Store) DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmarkID string) error {
+func (s *Store) DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmarkID, actorID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := checkArchiveAccess(ctx, tx, workspaceID, bookmarkID, actorID); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives WHERE bookmark_id = ? AND workspace_id = ?`, bookmarkID, workspaceID)
 	if err != nil {
 		return err
@@ -131,25 +164,33 @@ func (s *Store) DeleteBookmarkArchive(ctx context.Context, workspaceID, bookmark
 }
 
 // ClearWorkspaceArchives deletes all archived pages inside a workspace.
-func (s *Store) ClearWorkspaceArchives(ctx context.Context, workspaceID string) (int64, error) {
+func (s *Store) ClearWorkspaceArchives(ctx context.Context, workspaceID, actorID string) ([]string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	defer func() { _ = tx.Rollback() }()
-
-	res, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives WHERE workspace_id = ?`, workspaceID)
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `DELETE FROM bookmark_archives WHERE bookmark_id IN (
+		SELECT ar.bookmark_id FROM bookmark_archives ar WHERE ar.workspace_id=? AND `+archiveVisible+`) RETURNING bookmark_id`, workspaceID, actorID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	deleted, _ := res.RowsAffected()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE workspace_id = ?`, workspaceID); err != nil {
-		return 0, err
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
-	return deleted, nil
+	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_archives_fts WHERE workspace_id=? AND bookmark_id NOT IN (SELECT bookmark_id FROM bookmark_archives WHERE workspace_id=?)`, workspaceID, workspaceID); err != nil {
+		return nil, err
+	}
+	return ids, tx.Commit()
 }
 
 // ArchiveExists reports whether a bookmark currently has an archive record in the given workspace.

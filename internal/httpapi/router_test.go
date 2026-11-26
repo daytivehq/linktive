@@ -233,6 +233,14 @@ func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
 		t.Fatalf("expected 201 for editor writing to shared collection, got %d %s", rec.Code, rec.Body.String())
 	}
 
+	private := map[string]string{"url": "https://example.com/private", "title": "Elsewhere", "description": "test", "note": "private memo"}
+	if rec := doJSON(t, handler, http.MethodPost, "/api/v1/workspaces/"+ws1+"/bookmarks", private, cookies1); rec.Code != 201 {
+		t.Fatal(rec.Body.String())
+	}
+	if rec := doJSON(t, handler, http.MethodPost, "/api/v1/shared-collections/"+col.ID+"/bookmarks", private, cookies2); rec.Code != 409 || strings.Contains(rec.Body.String(), "private memo") {
+		t.Fatal(rec.Body.String())
+	}
+
 	// API Key creation + Bearer token access + Export/Import roundtrip.
 	keyRec := doJSON(t, handler, http.MethodPost, "/api/v1/api-keys", map[string]string{"name": "cli"}, cookies1)
 	if keyRec.Code != http.StatusCreated {
@@ -256,7 +264,7 @@ func TestTagsBulkWorkspaceAndCollectionSharing(t *testing.T) {
 		"content":         expRec.Body.String(),
 		"skip_duplicates": true,
 	}, cookies1)
-	if impRec.Code != http.StatusOK || !strings.Contains(impRec.Body.String(), `"skipped":2`) {
+	if impRec.Code != http.StatusOK || !strings.Contains(impRec.Body.String(), `"skipped":3`) {
 		t.Fatalf("import duplicate check failed: %d %s", impRec.Code, impRec.Body.String())
 	}
 }
@@ -714,6 +722,12 @@ func TestBookmarkArchiveSearchPolicyUsageAndCleanup(t *testing.T) {
 		t.Fatalf("expected 403 for member when owner archive_share_scope is owner_only, got %d %s", rec.Code, rec.Body.String())
 	}
 
+	for _, term := range []string{"고유키워드알파", "알파"} {
+		rec = doJSON(t, handler, http.MethodGet, "/api/v1/workspaces/"+wsID+"/bookmarks?q="+url.QueryEscape(term)+"&search_archive=true", nil, memberCookies)
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"total":0`) {
+			t.Fatal(rec.Body.String())
+		}
+	}
 	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/auth/settings", map[string]any{
 		"archive_share_scope": "shared_members",
 	}, ownerCookies)
