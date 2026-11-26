@@ -1,11 +1,12 @@
 package httpapi
 
 import (
-	"github.com/linktive/linktive/internal/authutil"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/linktive/linktive/internal/authutil"
 )
 
 func sessionOnly(next http.Handler) http.Handler {

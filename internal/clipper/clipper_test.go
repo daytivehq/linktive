@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -369,5 +370,26 @@ func TestNaverLazyImageSnapshotAndIncrementalMerge(t *testing.T) {
 	}
 	if ar2.ArchiveMode != clipper.ModeBoth || ar2.ContentHTML == "" || ar2.SnapshotHTML == "" {
 		t.Fatalf("expected both after merging readable into html, got mode=%s", ar2.ArchiveMode)
+	}
+}
+
+func TestAssetCleanupStaysWithinBookmark(t *testing.T) {
+	dir := t.TempDir()
+	m := clipper.NewManager(nil, dir, "", "")
+	for _, bm := range []string{"chosen", "keep"} {
+		if err := os.MkdirAll(filepath.Join(dir, "space", bm), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"", ".", "..", "a/b"} {
+		m.DeleteBookmarkAssets("space", id)
+		m.DeleteWorkspaceAssets(id)
+	}
+	m.DeleteBookmarkAssets("space", "chosen")
+	if _, err := os.Stat(filepath.Join(dir, "space", "keep")); err != nil {
+		t.Fatal("unrelated bookmark removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "space", "chosen")); !os.IsNotExist(err) {
+		t.Fatal("selected bookmark still exists")
 	}
 }

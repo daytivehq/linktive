@@ -163,3 +163,65 @@ func TestCollectionsBookmarksAndKoreanHybridSearch(t *testing.T) {
 		t.Fatalf("expected editor role, got %s", member.Role)
 	}
 }
+
+func TestArchiveRecoveryAndAccountRemoval(t *testing.T) {
+	ctx := context.Background()
+	for _, scope := range []string{"owner_only", "shared_members"} {
+		t.Run(scope, func(t *testing.T) {
+			st, err := Open(ctx, ":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			_, ws, err := st.CreateUserWithPersonalWorkspace(ctx, "owner@example.invalid", "owner", "hash")
+			if err != nil {
+				t.Fatal(err)
+			}
+			member, _, err := st.CreateUserWithPersonalWorkspace(ctx, "member@example.invalid", "member", "hash")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.UpdateUserSettings(ctx, member.ID, `{"archive_share_scope":"`+scope+`"}`); err != nil {
+				t.Fatal(err)
+			}
+			bm, err := st.CreateBookmark(ctx, store.CreateBookmarkInput{WorkspaceID: ws.ID, CreatedBy: member.ID, URL: "https://example.invalid/qa", NormalizedURL: "https://example.invalid/qa"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ar := domain.BookmarkArchive{WorkspaceID: ws.ID, BookmarkID: bm.ID, CreatedBy: member.ID, Status: "pending"}
+			if err := st.UpsertBookmarkArchive(ctx, ar); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.RecoverInterruptedClips(ctx); err != nil {
+				t.Fatal(err)
+			}
+			recovered, err := st.GetBookmarkArchive(ctx, ws.ID, bm.ID)
+			if err != nil || recovered.Status != "failed" {
+				t.Fatal("interrupted clip stayed pending")
+			}
+			ar.Status = "ready"
+			ar.ContentText = "distinctive sample"
+			if err := st.UpsertBookmarkArchive(ctx, ar); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.DeleteUser(ctx, member.ID); err != nil {
+				t.Fatal(err)
+			}
+			after, err := st.GetBookmarkArchive(ctx, ws.ID, bm.ID)
+			if scope == "shared_members" {
+				if err != nil || after.CreatedBy != "" || after.ContentText != ar.ContentText {
+					t.Fatal("shared archive inaccessible")
+				}
+			} else if !errors.Is(err, store.ErrNotFound) {
+				t.Fatal("private archive inherited")
+			}
+			var indexed int
+			if err := st.db.QueryRowContext(ctx, "SELECT count(*) FROM bookmark_archives_fts WHERE bookmark_id=?", bm.ID).Scan(&indexed); err != nil {
+				t.Fatal(err)
+			}
+			if (indexed == 1) != (scope == "shared_members") {
+				t.Fatal("stale archive index")
+			}
+		})
+	}
+}

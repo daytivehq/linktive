@@ -375,6 +375,10 @@ func TestProfile2FAAndAdminFlow(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "새닉네임") {
 		t.Fatalf("profile update failed: %d %s", rec.Code, rec.Body.String())
 	}
+	second := doJSON(t, handler, http.MethodPost, "/api/v1/auth/login", map[string]string{"email": "member2@linktive.local", "password": "password123"}, nil)
+	if second.Code != 200 {
+		t.Fatal(second.Body.String())
+	}
 	rec = doJSON(t, handler, http.MethodPatch, "/api/v1/auth/password", map[string]string{
 		"current_password": "password123", "new_password": "newpassword456",
 	}, memberCookies)
@@ -382,6 +386,9 @@ func TestProfile2FAAndAdminFlow(t *testing.T) {
 		t.Fatalf("password update failed: %d %s", rec.Code, rec.Body.String())
 	}
 
+	if other := doJSON(t, handler, http.MethodGet, "/api/v1/auth/me", nil, second.Result().Cookies()); other.Code != 401 {
+		t.Fatal("old session still valid")
+	}
 	setupRec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/2fa/setup", nil, memberCookies)
 	if setupRec.Code != http.StatusOK {
 		t.Fatalf("2fa setup failed: %d", setupRec.Code)
