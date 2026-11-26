@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
@@ -206,23 +206,13 @@ export function BookmarkDetailDrawer({
     }
   };
 
+  const snapshotFrame = useRef<HTMLIFrameElement>(null);
   const handlePrintPDF = () => {
-    if (viewFormat === 'html' && archive?.snapshot_html) {
-      const printWin = window.open('', '_blank', 'width=1100,height=850');
-      if (printWin) {
-        printWin.document.open();
-        printWin.document.write(archive.snapshot_html);
-        printWin.document.close();
-        window.setTimeout(() => {
-          try {
-            printWin.focus();
-            printWin.print();
-          } catch {
-            window.print();
-          }
-        }, 450);
-        return;
-      }
+    const frame = snapshotFrame.current?.contentWindow;
+    if (viewFormat === 'html' && frame) {
+      frame.focus();
+      frame.print();
+      return;
     }
     window.print();
   };
@@ -901,7 +891,8 @@ export function BookmarkDetailDrawer({
                             </a>
                           </div>
                           <iframe
-                            sandbox="allow-same-origin"
+                            ref={snapshotFrame}
+                            sandbox="allow-same-origin allow-modals"
                             title={archive.title || bookmark.title}
                             srcDoc={archive.snapshot_html}
                             className="min-h-[65vh] w-full flex-1 rounded-xl border border-slate-200 bg-white"

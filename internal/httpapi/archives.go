@@ -214,8 +214,17 @@ func (a *apiHandler) handleServeBookmarkAsset(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusNotFound, "asset not found")
 		return
 	}
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	http.ServeFile(w, r, fullPath)
+	serveArchiveAsset(w, r, fullPath)
+}
+
+func serveArchiveAsset(w http.ResponseWriter, r *http.Request, path string) {
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if strings.HasSuffix(path, ".img") {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	http.ServeFile(w, r, path)
 }
 
 func (a *apiHandler) handleExportBookmarkMarkdown(w http.ResponseWriter, r *http.Request) {
@@ -352,8 +361,7 @@ func (a *apiHandler) handleServeSharedCollectionBookmarkAsset(w http.ResponseWri
 		writeError(w, http.StatusNotFound, "asset not found")
 		return
 	}
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	http.ServeFile(w, r, fullPath)
+	serveArchiveAsset(w, r, fullPath)
 }
 
 func (a *apiHandler) handleClearWorkspaceArchives(w http.ResponseWriter, r *http.Request) {

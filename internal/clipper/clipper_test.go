@@ -91,6 +91,7 @@ func TestClipURLWithAssetsSizeLimitAndOrphanCleanup(t *testing.T) {
 	smallPNG := []byte{0x89, 'P', 'N', 'G', 1, 2, 3, 4}
 
 	var srvURL string
+	t.Setenv("LINKTIVE_ALLOW_PRIVATE_NETWORKS", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/post":
@@ -177,6 +178,7 @@ func TestSnapshotBothModeAndMarkdownZipBundle(t *testing.T) {
 	}
 
 	pngBytes := []byte{0x89, 'P', 'N', 'G', 1, 2, 3, 4}
+	t.Setenv("LINKTIVE_ALLOW_PRIVATE_NETWORKS", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/page":
@@ -271,6 +273,7 @@ func TestNaverLazyImageSnapshotAndIncrementalMerge(t *testing.T) {
 	}
 
 	pngBytes := []byte{0x89, 'P', 'N', 'G', 5, 6, 7, 8}
+	t.Setenv("LINKTIVE_ALLOW_PRIVATE_NETWORKS", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/news":

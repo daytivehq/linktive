@@ -138,7 +138,7 @@ func FetchMetadata(ctx context.Context, targetURL string) Metadata {
 	req.Header.Set("User-Agent", "linktive-bot/0.1 (+https://github.com/linktive/linktive)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 
-	client := &http.Client{Timeout: 4 * time.Second}
+	client := FetchClient(4 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return meta
@@ -237,7 +237,7 @@ func CheckURL(ctx context.Context, targetURL string) domain.LinkStatus {
 	reqCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 
-	client := &http.Client{Timeout: 6 * time.Second}
+	client := FetchClient(6 * time.Second)
 	doCheck := func(method string) (int, error) {
 		req, rErr := http.NewRequestWithContext(reqCtx, method, normalized, nil)
 		if rErr != nil {

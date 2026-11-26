@@ -9,7 +9,7 @@ RUN npm ci
 COPY web ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS backend-builder
 WORKDIR /src
 
 ARG TARGETOS=linux

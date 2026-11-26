@@ -19,6 +19,7 @@ import (
 
 	"github.com/linktive/linktive/internal/domain"
 	"github.com/linktive/linktive/internal/store"
+	"github.com/linktive/linktive/internal/urlutil"
 )
 
 const (
@@ -72,7 +73,7 @@ func NewManager(st store.Store, assetsDir, dbPath, backupsDir string) *Manager {
 		dbPath:     dbPath,
 		backupsDir: backupsDir,
 		queue:      make(chan clipJob, 128),
-		httpClient: &http.Client{Timeout: 12 * time.Second},
+		httpClient: urlutil.FetchClient(12 * time.Second),
 	}
 }
 
@@ -527,8 +528,8 @@ func (m *Manager) fetchStylesheet(ctx context.Context, cssURL, refererURL string
 		return nil, false, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; linktive-clipper/0.3)")
-	if refererURL != "" {
-		req.Header.Set("Referer", refererURL)
+	if referer, err := url.Parse(refererURL); err == nil && referer.Host != "" {
+		req.Header.Set("Referer", referer.Scheme+"://"+referer.Host+"/")
 	}
 
 	resp, err := m.httpClient.Do(req)
@@ -569,8 +570,8 @@ func (m *Manager) fetchSingleImage(ctx context.Context, imgURL, refererURL strin
 		return nil, "", false, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; linktive-clipper/0.3)")
-	if refererURL != "" {
-		req.Header.Set("Referer", refererURL)
+	if referer, err := url.Parse(refererURL); err == nil && referer.Host != "" {
+		req.Header.Set("Referer", referer.Scheme+"://"+referer.Host+"/")
 	}
 
 	resp, err := m.httpClient.Do(req)

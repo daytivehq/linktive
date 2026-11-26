@@ -480,6 +480,7 @@ func TestSavedFiltersLinkCheckAndAdminBackups(t *testing.T) {
 	}
 
 	// Link check against a local mock HTTP server (200 OK & 404 Not Found).
+	t.Setenv("LINKTIVE_ALLOW_PRIVATE_NETWORKS", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/missing" {
 			w.WriteHeader(http.StatusNotFound)
@@ -584,6 +585,7 @@ func TestSavedFiltersLinkCheckAndAdminBackups(t *testing.T) {
 }
 
 func TestBookmarkArchiveSearchPolicyUsageAndCleanup(t *testing.T) {
+	t.Setenv("LINKTIVE_ALLOW_PRIVATE_NETWORKS", "true")
 	ctx := context.Background()
 	st, err := sqlite.Open(ctx, ":memory:")
 	if err != nil {
@@ -603,6 +605,7 @@ func TestBookmarkArchiveSearchPolicyUsageAndCleanup(t *testing.T) {
 
 	// Serve a mock article and an image asset.
 	pngBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	t.Setenv("LINKTIVE_ALLOW_PRIVATE_NETWORKS", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/cover.png" {
 			w.Header().Set("Content-Type", "image/png")
