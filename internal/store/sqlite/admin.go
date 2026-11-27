@@ -61,31 +61,18 @@ func (s *Store) ListUsers(ctx context.Context) ([]domain.User, error) {
 
 // UpdateUserAdmin updates a user's admin status (preventing removal of the last admin).
 func (s *Store) UpdateUserAdmin(ctx context.Context, userID string, isAdmin bool) (domain.User, error) {
-	if !isAdmin {
-		var adminCount int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM users WHERE is_admin = 1`).Scan(&adminCount); err != nil {
-			return domain.User{}, err
-		}
-		var targetIsAdmin int
-		if err := s.db.QueryRowContext(ctx, `SELECT is_admin FROM users WHERE id = ?`, userID).Scan(&targetIsAdmin); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return domain.User{}, store.ErrNotFound
-			}
-			return domain.User{}, err
-		}
-		if targetIsAdmin != 0 && adminCount <= 1 {
-			return domain.User{}, store.ErrPermissionDenied
-		}
-	}
-
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE users SET is_admin = ?, updated_at = ? WHERE id = ?
-	`, boolToInt(isAdmin), formatTime(time.Now().UTC()), userID)
+		  AND (? = 1 OR is_admin = 0 OR EXISTS (SELECT 1 FROM users WHERE is_admin = 1 AND id <> ?))
+	`, boolToInt(isAdmin), formatTime(time.Now().UTC()), userID, boolToInt(isAdmin), userID)
 	if err != nil {
 		return domain.User{}, err
 	}
 	if rows, _ := res.RowsAffected(); rows == 0 {
-		return domain.User{}, store.ErrNotFound
+		if _, err := s.GetUserByID(ctx, userID); err != nil {
+			return domain.User{}, err
+		}
+		return domain.User{}, store.ErrPermissionDenied
 	}
 	return s.GetUserByID(ctx, userID)
 }
@@ -97,6 +84,21 @@ func (s *Store) DeleteUser(ctx context.Context, userID string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	var lastAdmin bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT is_admin = 1 AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1 AND id <> ?)
+		FROM users WHERE id = ?
+	`, userID, userID).Scan(&lastAdmin)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if lastAdmin {
+		return store.ErrPermissionDenied
+	}
 
 	// Clean up FTS rows and owned workspaces first to satisfy ON DELETE RESTRICT.
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM workspaces WHERE owner_id = ?`, userID)
@@ -113,6 +115,9 @@ func (s *Store) DeleteUser(ctx context.Context, userID string) error {
 		ownedWS = append(ownedWS, id)
 	}
 	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 
 	for _, wsID := range ownedWS {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM bookmarks_fts WHERE workspace_id = ?`, wsID); err != nil {

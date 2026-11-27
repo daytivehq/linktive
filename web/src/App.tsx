@@ -43,6 +43,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  Navigate,
   Route,
   Routes,
   useLocation,
@@ -108,12 +109,19 @@ function pickDefaultWorkspaceId(user: User, workspaces: Workspace[]): string {
 export function App() {
   const { t } = useI18n();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState('');
 
   const isPublicRoute = location.pathname.startsWith('/share/');
+  const requestedWorkspaceId = location.pathname === '/bookmarks' ? searchParams.get('workspace') : null;
+  const linkedWorkspace = workspaces.find((w) => w.id === requestedWorkspaceId);
+
+  useEffect(() => {
+    if (linkedWorkspace) setActiveWorkspaceId(linkedWorkspace.id);
+  }, [linkedWorkspace]);
 
   useEffect(() => {
     if (isPublicRoute) {
@@ -158,9 +166,10 @@ export function App() {
     );
   }
 
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const activeWorkspace = linkedWorkspace ?? workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
 
   if (!user || !activeWorkspace) {
+    if (location.pathname === '/admin') return <Navigate to="/" replace />;
     return (
       <AuthScreen
         onSuccess={(authedUser, userWorkspaces) => {
@@ -204,7 +213,9 @@ function AuthenticatedShell({
   const { setLocale, t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedWorkspaceId = location.pathname === '/bookmarks' ? searchParams.get('workspace') : null;
+  const linkedBookmarkId = location.pathname === '/bookmarks' ? searchParams.get('bookmark') : null;
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [sharedCollections, setSharedCollections] = useState<SharedCollectionView[]>([]);
@@ -248,7 +259,9 @@ function AuthenticatedShell({
     editing: boolean;
     initialTab?: 'info' | 'archive';
     initialExpanded?: boolean;
+    linked?: boolean;
   } | null>(null);
+  const [bookmarkLinkUnavailable, setBookmarkLinkUnavailable] = useState(false);
   const [collectionModal, setCollectionModal] = useState<{
     open: boolean;
     editing: Collection | null;
@@ -319,7 +332,7 @@ function AuthenticatedShell({
   useScrollLock(mobileSidebarOpen);
   useEscapeKey(() => setMobileSidebarOpen(false), mobileSidebarOpen);
   useBackClose(mobileSidebarOpen, () => setMobileSidebarOpen(false));
-  useBackClose(detailDrawer !== null, () => setDetailDrawer(null));
+  useBackClose(detailDrawer !== null && !detailDrawer.linked && !linkedBookmarkId, () => setDetailDrawer(null));
   useEscapeKey(() => {
     setSelectedIds(new Set());
     setSelectMode(false);
@@ -398,6 +411,37 @@ function AuthenticatedShell({
   useEffect(() => {
     setLocale(settings.language);
   }, [settings.language, setLocale]);
+
+  useEffect(() => {
+    setBookmarkLinkUnavailable(false);
+    if (!linkedBookmarkId) {
+      setDetailDrawer((previous) => previous?.linked ? null : previous);
+      return;
+    }
+    setDetailDrawer(null);
+    if (linkedWorkspaceId !== activeWorkspace.id) {
+      setBookmarkLinkUnavailable(true);
+      return;
+    }
+    const controller = new AbortController();
+    api.getBookmark(activeWorkspace.id, linkedBookmarkId, controller.signal)
+      .then((bookmark) => {
+        if (!controller.signal.aborted) setDetailDrawer({ bookmark, editing: false, linked: true });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBookmarkLinkUnavailable(true);
+      });
+    return () => controller.abort();
+  }, [activeWorkspace.id, linkedBookmarkId, linkedWorkspaceId]);
+
+  const closeDetailDrawer = () => {
+    setDetailDrawer(null);
+    if (linkedBookmarkId) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('bookmark');
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   // Derive active route scope from URL path.
   const routeScope = useMemo(() => {
@@ -729,9 +773,9 @@ function AuthenticatedShell({
           });
 
     if (payload.target_workspace_id) {
-      setDetailDrawer(null);
+      closeDetailDrawer();
     } else {
-      setDetailDrawer({ bookmark: updated, editing: false });
+      setDetailDrawer({ bookmark: updated, editing: false, linked: detailDrawer?.linked });
     }
     await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
   };
@@ -753,7 +797,7 @@ function AuthenticatedShell({
           }
           throw err;
         }
-        if (detailDrawer?.bookmark.id === bm.id) setDetailDrawer(null);
+        if (detailDrawer?.bookmark.id === bm.id) closeDetailDrawer();
         await Promise.all([refreshBookmarks(), refreshSidebar(activeWorkspace.id)]);
       },
     });
@@ -992,11 +1036,16 @@ function AuthenticatedShell({
     navigate(path);
   };
 
+  const endSession = () => {
+    navigate('/', { replace: true });
+    onSetUser(null);
+    onSetWorkspaces([]);
+  };
+
   const handleLogout = async () => {
     setUserMenuOpen(false);
     await api.logout();
-    onSetUser(null);
-    onSetWorkspaces([]);
+    endSession();
   };
 
   const renderBookmarkFeed = () => (
@@ -2548,6 +2597,11 @@ function AuthenticatedShell({
           onScroll={(e) => handlePaneScroll(e.currentTarget)}
           className="min-w-0 flex-1 p-3 sm:p-6 md:h-full md:overflow-y-auto"
         >
+          {bookmarkLinkUnavailable && (
+            <p role="status" className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {t('feed.bookmarkLinkUnavailable')}
+            </p>
+          )}
           <Routes>
             <Route
               path="/tags"
@@ -2594,6 +2648,7 @@ function AuthenticatedShell({
                     await Promise.all([refreshSidebar(activeWorkspace.id), refreshBookmarks()]);
                   }}
                   onLogout={handleLogout}
+                  onAccountDeleted={endSession}
                 />
               }
             />
@@ -2662,7 +2717,9 @@ function AuthenticatedShell({
         />
       )}
 
-      {detailDrawer && (
+      {detailDrawer && (!detailDrawer.linked || (
+        detailDrawer.bookmark.id === linkedBookmarkId && detailDrawer.bookmark.workspace_id === activeWorkspace.id
+      )) && (
         <BookmarkDetailDrawer
           bookmark={detailDrawer.bookmark}
           collections={collections}
@@ -2675,7 +2732,7 @@ function AuthenticatedShell({
           defaultClipFormat={settings.clip_format}
           isSharedCollectionView={isSharedCollectionView}
           sharedCollectionId={activeSharedCollection?.id}
-          onClose={() => setDetailDrawer(null)}
+          onClose={closeDetailDrawer}
           onUpdate={handleUpdateBookmark}
           onDelete={(bm) => handleDeleteBookmark(bm)}
           onToggleFavorite={(bm) => void handleToggleFavorite(bm)}

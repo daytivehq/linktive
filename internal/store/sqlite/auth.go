@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/linktive/linktive/internal/store"
 )
 
-const defaultSettingsJSON = `{"click_action":"new_tab","view_mode":"list","visible_fields":{"thumbnail":true,"title":true,"description":true,"note":true,"tags":true,"createdAt":true}}`
+const initialSettingsFormat = `{"language":%q,"click_action":"new_tab","view_mode":"list","visible_fields":{"thumbnail":true,"title":true,"description":true,"note":true,"tags":true,"createdAt":true}}`
 
 // GetAuthConfig reports whether public registration is enabled, whether users exist, and invite validity.
 func (s *Store) GetAuthConfig(ctx context.Context, inviteToken string) (domain.AuthConfig, error) {
@@ -40,14 +41,17 @@ func (s *Store) GetAuthConfig(ctx context.Context, inviteToken string) (domain.A
 
 // CreateUserWithPersonalWorkspace registers a user without an invite token.
 func (s *Store) CreateUserWithPersonalWorkspace(ctx context.Context, email, name, passwordHash string) (domain.User, domain.Workspace, error) {
-	return s.RegisterUser(ctx, email, name, passwordHash, "")
+	return s.RegisterUser(ctx, email, name, passwordHash, "", "")
 }
 
 // RegisterUser creates a user and their personal workspace, promoting the very first user to admin
 // and enforcing registration policy / invite tokens for subsequent users.
-func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash, inviteToken string) (domain.User, domain.Workspace, error) {
+func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash, inviteToken, language string) (domain.User, domain.Workspace, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	inviteToken = strings.TrimSpace(inviteToken)
+	if language != "ko" && language != "en" {
+		language = "en"
+	}
 	now := time.Now().UTC()
 	nowStr := formatTime(now)
 
@@ -96,7 +100,7 @@ func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash, inv
 		Email:        email,
 		Name:         strings.TrimSpace(name),
 		PasswordHash: passwordHash,
-		SettingsJSON: defaultSettingsJSON,
+		SettingsJSON: fmt.Sprintf(initialSettingsFormat, language),
 		IsAdmin:      isFirstUser,
 		TOTPEnabled:  false,
 		CreatedAt:    now,

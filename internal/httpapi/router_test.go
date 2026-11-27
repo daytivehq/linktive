@@ -16,6 +16,7 @@ import (
 	"github.com/linktive/linktive/internal/authutil"
 	"github.com/linktive/linktive/internal/backup"
 	"github.com/linktive/linktive/internal/clipper"
+	"github.com/linktive/linktive/internal/domain"
 	"github.com/linktive/linktive/internal/store/sqlite"
 )
 
@@ -99,6 +100,64 @@ func TestAuthBookmarkAndKoreanSearchFlow(t *testing.T) {
 	rec404 := doJSON(t, handler, http.MethodGet, "/api/v1/unknown", nil, cookies)
 	if rec404.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 on unknown API route, got %d", rec404.Code)
+	}
+}
+
+func TestRegistrationPersistsLanguage(t *testing.T) {
+	st, err := sqlite.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	handler := NewRouter(st, fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}})
+
+	checkSettings := func(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, wantLanguage string) {
+		t.Helper()
+		if rec.Code != wantStatus {
+			t.Fatalf("expected %d, got %d: %s", wantStatus, rec.Code, rec.Body.String())
+		}
+		var response struct {
+			User struct {
+				SettingsJSON string `json:"settings_json"`
+			} `json:"user"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		var settings struct {
+			Language string `json:"language"`
+		}
+		if err := json.Unmarshal([]byte(response.User.SettingsJSON), &settings); err != nil {
+			t.Fatal(err)
+		}
+		if settings.Language != wantLanguage {
+			t.Fatalf("expected language %q, got %q", wantLanguage, settings.Language)
+		}
+	}
+
+	for _, tc := range []struct{ name, language, want string }{
+		{"korean", "ko", "ko"},
+		{"english", "en", "en"},
+		{"omitted", "", "en"},
+		{"unsupported", "fr", "en"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			credentials := map[string]string{"email": tc.name + "@example.invalid", "password": "password123"}
+			registration := map[string]string{"email": credentials["email"], "password": credentials["password"], "name": "Test User"}
+			if tc.language != "" {
+				registration["language"] = tc.language
+			}
+			reg := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", registration, nil)
+			checkSettings(t, reg, http.StatusCreated, tc.want)
+			logout := doJSON(t, handler, http.MethodPost, "/api/v1/auth/logout", nil, reg.Result().Cookies())
+			if logout.Code != http.StatusOK {
+				t.Fatalf("logout failed: %d %s", logout.Code, logout.Body.String())
+			}
+			login := doJSON(t, handler, http.MethodPost, "/api/v1/auth/login", credentials, nil)
+			checkSettings(t, login, http.StatusOK, tc.want)
+			me := doJSON(t, handler, http.MethodGet, "/api/v1/auth/me", nil, login.Result().Cookies())
+			checkSettings(t, me, http.StatusOK, tc.want)
+		})
 	}
 }
 
@@ -430,6 +489,104 @@ func TestProfile2FAAndAdminFlow(t *testing.T) {
 	rec = doJSON(t, handler, http.MethodDelete, "/api/v1/admin/users/"+r2.User.ID, nil, adminCookies)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("admin delete user failed: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteOwnAccount(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	handler := NewRouter(st, fstest.MapFS{"index.html": {Data: []byte("<html>ok</html>")}})
+	const path = "/api/v1/auth/account"
+	const password = "password123"
+
+	check := func(rec *httptest.ResponseRecorder, want int) {
+		t.Helper()
+		if rec.Code != want {
+			t.Fatalf("expected %d, got %d: %s", want, rec.Code, rec.Body.String())
+		}
+	}
+	register := func(email string) ([]*http.Cookie, domain.User, domain.Workspace) {
+		t.Helper()
+		rec := doJSON(t, handler, http.MethodPost, "/api/v1/auth/register", map[string]string{
+			"email": email, "name": email, "password": password,
+		}, nil)
+		check(rec, http.StatusCreated)
+		var payload struct {
+			User       domain.User        `json:"user"`
+			Workspaces []domain.Workspace `json:"workspaces"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil || len(payload.Workspaces) != 1 {
+			t.Fatalf("invalid registration response: %v, %s", err, rec.Body.String())
+		}
+		return rec.Result().Cookies(), payload.User, payload.Workspaces[0]
+	}
+	bearer := func(method, target, token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, target, strings.NewReader(`{"current_password":"password123"}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	adminCookies, _, _ := register("admin@example.invalid")
+	memberCookies, member, personal := register("member@example.invalid")
+	bookmarksPath := "/api/v1/workspaces/" + personal.ID + "/bookmarks"
+	created := doJSON(t, handler, http.MethodPost, bookmarksPath, map[string]string{
+		"url": "https://example.invalid/personal", "title": "Personal bookmark",
+	}, memberCookies)
+	check(created, http.StatusCreated)
+	var bookmark domain.Bookmark
+	if err := json.Unmarshal(created.Body.Bytes(), &bookmark); err != nil || bookmark.ID == "" {
+		t.Fatalf("invalid bookmark response: %v, %s", err, created.Body.String())
+	}
+	credentials := map[string]string{"current_password": password}
+	check(doJSON(t, handler, http.MethodDelete, path, credentials, nil), http.StatusUnauthorized)
+	check(doJSON(t, handler, http.MethodDelete, path, credentials, adminCookies), http.StatusConflict)
+	check(doJSON(t, handler, http.MethodDelete, path, map[string]string{"current_password": "wrong"}, memberCookies), http.StatusUnauthorized)
+
+	key := doJSON(t, handler, http.MethodPost, "/api/v1/api-keys", map[string]string{"name": "extension"}, memberCookies)
+	check(key, http.StatusCreated)
+	var apiKey struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(key.Body.Bytes(), &apiKey); err != nil || apiKey.Token == "" {
+		t.Fatalf("missing API key: %v", err)
+	}
+	check(bearer(http.MethodDelete, path, apiKey.Token), http.StatusForbidden)
+	check(bearer(http.MethodGet, "/api/v1/auth/me", apiKey.Token), http.StatusOK)
+
+	otherSession := doJSON(t, handler, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"email": member.Email, "password": password,
+	}, nil)
+	check(otherSession, http.StatusOK)
+	secret, err := authutil.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnableUserTOTP(ctx, member.ID, secret); err != nil {
+		t.Fatal(err)
+	}
+	check(doJSON(t, handler, http.MethodDelete, path, credentials, memberCookies), http.StatusUnauthorized)
+	code, err := authutil.GenerateTOTPCode(secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials["totp_code"] = code
+	deleted := doJSON(t, handler, http.MethodDelete, path, credentials, memberCookies)
+	check(deleted, http.StatusOK)
+	cookies := deleted.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].MaxAge >= 0 {
+		t.Fatalf("expected session cookie to be cleared, got %v", cookies)
+	}
+	check(bearer(http.MethodGet, "/api/v1/auth/me", apiKey.Token), http.StatusUnauthorized)
+	check(doJSON(t, handler, http.MethodGet, "/api/v1/auth/me", nil, otherSession.Result().Cookies()), http.StatusUnauthorized)
+	check(doJSON(t, handler, http.MethodGet, "/api/v1/auth/me", nil, adminCookies), http.StatusOK)
+	if _, err := st.GetBookmark(ctx, personal.ID, bookmark.ID); err == nil {
+		t.Fatal("owned bookmark still exists")
 	}
 }
 

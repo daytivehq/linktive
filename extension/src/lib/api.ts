@@ -1,3 +1,5 @@
+import { t } from './i18n'
+
 export interface User {
   id: string
   email: string
@@ -54,6 +56,14 @@ export class DuplicateBookmarkError extends ApiError {
     super(409, message)
     this.existing = existing
   }
+}
+
+export function requestErrorMessage(error: unknown, fallbackKey: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return t('invalid_api_key')
+    return t('error_details', [t(fallbackKey), error.message])
+  }
+  return t(fallbackKey)
 }
 
 async function requestJSON<T>(

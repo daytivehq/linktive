@@ -96,6 +96,7 @@ func NewRouter(st store.Store, staticFS fs.FS, opts ...RouterOption) http.Handle
 			authed.Patch("/auth/settings", h.handleUpdateSettings)
 			authed.Patch("/auth/profile", h.handleUpdateProfile)
 			authed.With(sessionOnly).Patch("/auth/password", h.handleUpdatePassword)
+			authed.With(sessionOnly, h.withArchiveFiles).Delete("/auth/account", h.handleDeleteAccount)
 			authed.With(sessionOnly).Post("/auth/2fa/setup", h.handle2FASetup)
 			authed.With(sessionOnly).Post("/auth/2fa/enable", h.handle2FAEnable)
 			authed.With(sessionOnly).Post("/auth/2fa/disable", h.handle2FADisable)

@@ -89,19 +89,29 @@ func (a *apiHandler) handleAdminDeleteUser(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "cannot delete your own account")
 		return
 	}
-	err := a.store.DeleteUser(r.Context(), targetID)
+	if a.deleteUser(w, r, targetID) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	}
+}
+
+func (a *apiHandler) deleteUser(w http.ResponseWriter, r *http.Request, userID string) bool {
+	err := a.store.DeleteUser(r.Context(), userID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "user not found")
-		return
+		return false
+	}
+	if errors.Is(err, store.ErrPermissionDenied) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "the last administrator cannot be deleted", "code": "last_admin"})
+		return false
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete user")
-		return
+		return false
 	}
 	if a.clipper != nil {
 		_, _, _ = a.clipper.CleanupOrphanAssets(r.Context())
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	return true
 }
 
 func (a *apiHandler) handleAdminListInvites(w http.ResponseWriter, r *http.Request) {

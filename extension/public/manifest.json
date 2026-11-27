@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "linktive",
-  "version": "0.3.0",
-  "description": "현재 페이지를 빠르게 저장하고 주소창에서 'lk'로 북마크를 즉시 검색하세요.",
+  "version": "0.5.0",
+  "default_locale": "en",
+  "description": "__MSG_description__",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -10,7 +11,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "linktive에 북마크 저장",
+    "default_title": "__MSG_action_title__",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -33,7 +34,7 @@
         "default": "Alt+Shift+L",
         "mac": "Command+Shift+L"
       },
-      "description": "linktive 북마크 저장 팝업 열기"
+      "description": "__MSG_command_description__"
     }
   }
 }

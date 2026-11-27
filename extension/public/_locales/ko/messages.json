@@ -1,0 +1,203 @@
+{
+  "locale": {
+    "message": "ko"
+  },
+  "description": {
+    "message": "현재 페이지를 빠르게 저장하고 주소창에서 'lk'로 북마크를 즉시 검색하세요."
+  },
+  "action_title": {
+    "message": "linktive에 북마크 저장"
+  },
+  "command_description": {
+    "message": "linktive 북마크 저장 팝업 열기"
+  },
+  "options_title": {
+    "message": "linktive 확장 프로그램 설정"
+  },
+  "popup_title": {
+    "message": "linktive 북마크 저장"
+  },
+  "invalid_api_key": {
+    "message": "API 키가 유효하지 않습니다. 확장 프로그램 설정에서 확인하세요."
+  },
+  "connection_error": {
+    "message": "서버에 연결할 수 없습니다."
+  },
+  "error_details": {
+    "message": "$summary$ ($details$)",
+    "placeholders": {
+      "summary": {
+        "content": "$1"
+      },
+      "details": {
+        "content": "$2"
+      }
+    }
+  },
+  "duplicate_bookmark": {
+    "message": "이미 저장된 URL입니다."
+  },
+  "save_error": {
+    "message": "북마크 저장에 실패했습니다."
+  },
+  "select_workspace": {
+    "message": "소속 선택"
+  },
+  "open_web_app": {
+    "message": "linktive 웹 열기"
+  },
+  "open_extension_settings": {
+    "message": "확장 프로그램 설정"
+  },
+  "loading": {
+    "message": "불러오는 중…"
+  },
+  "setup_required": {
+    "message": "linktive 연결 설정이 필요합니다"
+  },
+  "setup_instructions": {
+    "message": "서버 주소와 API 키를 등록하면 현재 탭을 저장하고 주소창에서 ‘lk’로 북마크를 검색할 수 있습니다."
+  },
+  "open_settings": {
+    "message": "설정 열기"
+  },
+  "bookmark_saved": {
+    "message": "북마크가 저장되었습니다"
+  },
+  "view_on_web": {
+    "message": "웹에서 확인"
+  },
+  "close": {
+    "message": "닫기"
+  },
+  "view_existing": {
+    "message": "기존 항목 보기"
+  },
+  "save_anyway": {
+    "message": "그래도 추가"
+  },
+  "bookmark_title": {
+    "message": "제목"
+  },
+  "bookmark_title_placeholder": {
+    "message": "비워두면 서버에서 자동 수집"
+  },
+  "collection": {
+    "message": "컬렉션"
+  },
+  "uncategorized": {
+    "message": "미분류"
+  },
+  "favorite": {
+    "message": "즐겨찾기"
+  },
+  "tags": {
+    "message": "태그"
+  },
+  "remove_tag": {
+    "message": "$tag$ 태그 제거",
+    "placeholders": {
+      "tag": {
+        "content": "$1"
+      }
+    }
+  },
+  "tags_placeholder": {
+    "message": "태그 입력 후 Enter (쉼표로 구분)"
+  },
+  "note": {
+    "message": "메모"
+  },
+  "note_placeholder": {
+    "message": "간단한 메모를 남기세요"
+  },
+  "saving": {
+    "message": "저장 중…"
+  },
+  "save_bookmark": {
+    "message": "북마크 저장"
+  },
+  "credentials_required": {
+    "message": "서버 URL과 API 키를 모두 입력하세요."
+  },
+  "connection_saved": {
+    "message": "연결 확인 및 설정 저장이 완료되었습니다."
+  },
+  "workspace_saved": {
+    "message": "기본 소속 설정이 저장되었습니다."
+  },
+  "options_intro": {
+    "message": "자체 호스팅 linktive 서버와 API 키를 연결합니다."
+  },
+  "server_url": {
+    "message": "서버 주소 (URL)"
+  },
+  "server_url_placeholder": {
+    "message": "https://bookmark.example.com 또는 http://localhost:18080"
+  },
+  "api_key": {
+    "message": "API 키"
+  },
+  "hide_api_key": {
+    "message": "API 키 숨기기"
+  },
+  "show_api_key": {
+    "message": "API 키 표시"
+  },
+  "api_key_instructions": {
+    "message": "linktive 웹 앱의 설정 → API 키 메뉴에서 발급한 키를 입력하세요."
+  },
+  "default_workspace": {
+    "message": "기본 소속 (검색 및 빠른 저장 대상)"
+  },
+  "personal_workspace": {
+    "message": "개인"
+  },
+  "shared_workspace": {
+    "message": "공유 소속"
+  },
+  "connected_account": {
+    "message": "연결된 계정: $account$",
+    "placeholders": {
+      "account": {
+        "content": "$1"
+      }
+    }
+  },
+  "testing_connection": {
+    "message": "연결 확인 중…"
+  },
+  "test_and_save": {
+    "message": "연결 테스트 및 저장"
+  },
+  "related_links": {
+    "message": "linktive 관련 링크"
+  },
+  "chrome_web_store": {
+    "message": "Chrome 웹 스토어"
+  },
+  "quick_tips": {
+    "message": "빠른 사용 팁"
+  },
+  "omnibox_tip_title": {
+    "message": "주소창 즉시 검색"
+  },
+  "omnibox_tip": {
+    "message": "주소창에 ‘lk’를 입력하고 Space 또는 Tab을 누른 뒤 검색어를 입력하면 저장된 북마크가 표시됩니다."
+  },
+  "shortcut_tip_title": {
+    "message": "단축키로 현재 페이지 저장"
+  },
+  "shortcut_tip": {
+    "message": "Alt+Shift+L(macOS는 Cmd+Shift+L)을 누르면 저장 팝업이 열립니다."
+  },
+  "omnibox_default": {
+    "message": "linktive에서 <match>%s</match> 검색 (Enter: 웹 검색 페이지 열기)"
+  },
+  "omnibox_setup_required": {
+    "message": "linktive 서버 URL과 API 키를 먼저 설정하세요. 이 항목을 선택하면 설정이 열립니다."
+  },
+  "omnibox_search_error": {
+    "message": "검색 오류: linktive 연결 설정을 확인하세요."
+  }
+}

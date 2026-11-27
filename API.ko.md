@@ -6,13 +6,13 @@
 
 ## 1. 인증 방법
 
-웹 UI의 **설정 → API 키** 탭에서 `lkt_...` 토큰을 발급받은 뒤, 요청 헤더에 Bearer 토큰을 포함하세요.
+웹 UI의 **설정 → 계정 · API → API 키 · 자동화 연동**에서 `lkt_...` 토큰을 발급받은 뒤, 요청 헤더에 Bearer 토큰을 포함하세요.
 
 ```http
 Authorization: Bearer lkt_YOUR_API_KEY
 ```
 
-비밀번호와 2단계 인증 변경, API 키 관리, 관리자 기능은 로그인한 웹 세션이 필요합니다. 이 경로에 Bearer 키를 보내면 `403`을 반환합니다.
+비밀번호와 2단계 인증 변경, 회원탈퇴, API 키 관리, 관리자 기능은 로그인한 웹 세션이 필요합니다. 이 경로에 Bearer 키를 보내면 `403`을 반환합니다.
 
 ---
 
@@ -20,7 +20,12 @@ Authorization: Bearer lkt_YOUR_API_KEY
 
 ### 헬스체크 & 계정
 - `GET /api/v1/health` — 서버 및 SQLite 연결 확인 (인증 불필요)
+- `GET /api/v1/auth/config` — 가입 가능 여부, 초기 설정 토큰 필요 여부, 선택적으로 전달한 `invite` 쿼리 토큰의 유효성을 확인합니다.
+- `POST /api/v1/auth/register` — `email`, `name`, `password`로 가입합니다. `language`에 `ko` 또는 `en`을 보내면 계정 표시 언어에 저장합니다. 생략하거나 지원하지 않는 값은 `en`이 적용됩니다. 필요하면 `setup_token` 또는 `invite_token`을 보냅니다. 성공 시 `201`을 반환하고 세션 쿠키를 설정합니다.
+- `POST /api/v1/auth/login` — `email`, `password`로 로그인합니다. `requires_2fa`가 `true`이면 `totp_code`를 포함해 다시 요청하면 로그인이 완료됩니다.
+- `POST /api/v1/auth/logout` — 현재 웹 세션을 종료하고 세션 쿠키를 지웁니다.
 - `GET /api/v1/auth/me` — 내 계정 및 소속(워크스페이스) 목록 조회
+- `DELETE /api/v1/auth/account` — 로그인한 계정과 직접 소유한 소속을 영구 삭제합니다. 다른 사용자가 소유한 공유 소속에 추가한 북마크는 남습니다. `current_password`를 보내고, 2단계 인증을 사용 중이면 `totp_code`도 보냅니다. 성공하면 `200`을 반환하고 계정의 세션과 API 키를 폐기합니다. 비밀번호 또는 인증 코드가 틀리면 `401`, 마지막 관리자이면 `409`를 반환합니다.
 - `PATCH /api/v1/auth/settings` — 표시 언어(`language`), 클릭 동작, 보기 모드, 기본 클리핑 방식 등 사용자 설정 저장
 - `POST /api/v1/auth/2fa/setup` — 인증 앱 등록을 시작합니다. `password`와 기존 2단계 인증이 켜져 있으면 현재 OTP를 `code`로 보냅니다. 새 OTP는 `POST /api/v1/auth/2fa/enable`에 보냅니다.
 - `GET /api/v1/api-keys`, `POST /api/v1/api-keys`, `DELETE /api/v1/api-keys/{keyID}` — API 키 관리

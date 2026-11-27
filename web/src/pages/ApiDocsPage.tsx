@@ -59,7 +59,9 @@ export function ApiDocsPage({ activeWorkspaceId, onBack }: ApiDocsPageProps) {
 
   const endpoints = [
     { method: 'GET', path: '/api/v1/health', auth: t('apiDocs.authPublic'), desc: t('apiDocs.ep.health') },
+    { method: 'POST', path: '/api/v1/auth/register', auth: t('apiDocs.authPublic'), desc: t('apiDocs.ep.register') },
     { method: 'GET', path: '/api/v1/auth/me', auth: t('apiDocs.authRequired'), desc: t('apiDocs.ep.me') },
+    { method: 'DELETE', path: '/api/v1/auth/account', auth: t('apiDocs.authSession'), desc: t('apiDocs.ep.deleteAccount') },
     { method: 'GET', path: '/api/v1/workspaces', auth: t('apiDocs.authRequired'), desc: t('apiDocs.ep.wsList') },
     { method: 'POST', path: '/api/v1/workspaces', auth: t('apiDocs.authRequired'), desc: t('apiDocs.ep.wsCreate') },
     { method: 'PATCH', path: '/api/v1/workspaces/{wsID}', auth: t('apiDocs.authOwner'), desc: t('apiDocs.ep.wsRename') },

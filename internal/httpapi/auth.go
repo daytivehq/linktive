@@ -82,6 +82,7 @@ func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Email       string `json:"email"`
 		Name        string `json:"name"`
 		Password    string `json:"password"`
+		Language    string `json:"language"`
 		InviteToken string `json:"invite_token"`
 		SetupToken  string `json:"setup_token"`
 	}
@@ -119,7 +120,7 @@ func (a *apiHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ws, err := a.store.RegisterUser(r.Context(), req.Email, req.Name, string(hash), req.InviteToken)
+	user, ws, err := a.store.RegisterUser(r.Context(), req.Email, req.Name, string(hash), req.InviteToken, req.Language)
 	if errors.Is(err, store.ErrRegistrationDisabled) {
 		writeError(w, http.StatusForbidden, "registration is currently disabled; an invite link is required")
 		return
@@ -230,6 +231,11 @@ func (a *apiHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
 		_ = a.store.DeleteSessionByHash(r.Context(), hashToken(cookie.Value))
 	}
+	clearSessionCookie(w, r)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
@@ -239,7 +245,6 @@ func (a *apiHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		Secure:   isHTTPS(r),
 	})
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *apiHandler) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -332,6 +337,37 @@ func (a *apiHandler) handleUpdatePassword(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (a *apiHandler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		TOTPCode        string `json:"totp_code"`
+	}
+	if err := decodeJSON(r, &req); err != nil || req.CurrentPassword == "" {
+		writeError(w, http.StatusBadRequest, "current password is required")
+		return
+	}
+	now := time.Now()
+	if !a.authState.allow("delete-account:"+user.ID, 12, now) {
+		w.Header().Set("Retry-After", "300")
+		writeError(w, http.StatusTooManyRequests, "too many verification attempts; try again in five minutes")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)) != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "current password is incorrect", "code": "invalid_password"})
+		return
+	}
+	if user.TOTPEnabled && !authutil.VerifyTOTPCode(user.TOTPSecret, req.TOTPCode, now) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid 2FA verification code", "code": "invalid_totp"})
+		return
+	}
+	if !a.deleteUser(w, r, user.ID) {
+		return
+	}
+	clearSessionCookie(w, r)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (a *apiHandler) handle2FASetup(w http.ResponseWriter, r *http.Request) {

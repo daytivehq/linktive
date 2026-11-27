@@ -162,7 +162,7 @@ type Store interface {
 
 	// Auth & Users
 	GetAuthConfig(ctx context.Context, inviteToken string) (domain.AuthConfig, error)
-	RegisterUser(ctx context.Context, email, name, passwordHash, inviteToken string) (domain.User, domain.Workspace, error)
+	RegisterUser(ctx context.Context, email, name, passwordHash, inviteToken, language string) (domain.User, domain.Workspace, error)
 	CreateUserWithPersonalWorkspace(ctx context.Context, email, name, passwordHash string) (domain.User, domain.Workspace, error)
 	GetUserByEmail(ctx context.Context, email string) (domain.User, error)
 	GetUserByID(ctx context.Context, id string) (domain.User, error)

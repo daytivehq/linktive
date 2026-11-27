@@ -22,9 +22,10 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { LanguageSelect } from '../components/LanguageSelect';
+import { SecretInput } from '../components/SecretInput';
 import { useI18n, type LocaleCode } from '../i18n';
 import type {
   APIKeyItem,
@@ -57,6 +58,7 @@ interface SettingsPageProps {
   onSelectWorkspace: (wsID: string) => void;
   onDataImported: () => Promise<void>;
   onLogout: () => Promise<void>;
+  onAccountDeleted: () => void;
 }
 
 export function SettingsPage({
@@ -74,6 +76,7 @@ export function SettingsPage({
   onSelectWorkspace,
   onDataImported,
   onLogout,
+  onAccountDeleted,
 }: SettingsPageProps) {
   const { setLocale, t } = useI18n();
   const [tab, setTab] = useState<'general' | 'workspaces' | 'account' | 'transfer'>('general');
@@ -109,6 +112,9 @@ export function SettingsPage({
   const [totpEnableCode, setTotpEnableCode] = useState('');
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  const [deletionPassword, setDeletionPassword] = useState('');
+  const [deletionCode, setDeletionCode] = useState('');
 
   // Workspaces state
   const [newWsName, setNewWsName] = useState('');
@@ -319,6 +325,27 @@ export function SettingsPage({
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.requestFailed'));
     }
+  };
+
+  const closeDeleteAccount = () => {
+    setConfirmDeleteAccount(false);
+    setDeletionPassword('');
+    setDeletionCode('');
+  };
+
+  const handleDeleteAccount = async () => {
+    try {
+      await api.deleteAccount(deletionPassword, deletionCode);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.code === 'last_admin') throw new Error(t('settings.deleteAccountLastAdmin'));
+        if (err.code === 'invalid_password') throw new Error(t('settings.deleteAccountInvalidPassword'));
+        if (err.code === 'invalid_totp') throw new Error(t('settings.deleteAccountInvalidCode'));
+        if (err.status === 429) throw new Error(t('settings.deleteAccountRateLimit'));
+      }
+      throw new Error(t('settings.deleteAccountFailed'));
+    }
+    onAccountDeleted();
   };
 
   const handleCreateWorkspace = async (e: FormEvent) => {
@@ -1076,31 +1103,21 @@ export function SettingsPage({
                 {t('settings.passwordTitle')}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">
-                    {t('settings.currentPassword')}
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">
-                    {t('settings.newPassword')}
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
-                  />
-                </div>
+                <SecretInput
+                  label={t('settings.currentPassword')}
+                  required
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
+                <SecretInput
+                  label={t('settings.newPassword')}
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
               </div>
               <div className="flex justify-end">
                 <button
@@ -1139,10 +1156,15 @@ export function SettingsPage({
 
               {!totpSecret ? (
                 <form onSubmit={handleStart2FASetup} className="flex flex-wrap gap-2">
-                  <input type="password" required autoComplete="current-password"
-                    aria-label={t('settings.currentPassword')} placeholder={t('settings.currentPassword')}
-                    value={totpSetupPassword} onChange={(e) => setTotpSetupPassword(e.target.value)}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs" />
+                  <SecretInput
+                    compact
+                    label={t('settings.currentPassword')}
+                    placeholder={t('settings.currentPassword')}
+                    required
+                    autoComplete="current-password"
+                    value={totpSetupPassword}
+                    onChange={(e) => setTotpSetupPassword(e.target.value)}
+                  />
                   {user.totp_enabled && (
                     <input type="text" inputMode="numeric" required maxLength={6}
                       aria-label={t('settings.twoFactorCodePlaceholder')} placeholder={t('settings.twoFactorCodePlaceholder')}
@@ -1212,13 +1234,14 @@ export function SettingsPage({
                     {t('settings.twoFactorDisableTitle')}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <input
-                      type="password"
+                    <SecretInput
+                      compact
+                      label={t('settings.currentPassword')}
+                      placeholder={t('settings.currentPassword')}
                       required
+                      autoComplete="current-password"
                       value={disablePassword}
                       onChange={(e) => setDisablePassword(e.target.value)}
-                      placeholder={t('settings.currentPassword')}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-sky-500"
                     />
                     <input
                       type="text"
@@ -1330,6 +1353,56 @@ export function SettingsPage({
               </div>
             </div>
           </div>
+        )}
+
+        {tab === 'account' && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 p-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">{t('settings.deleteAccount')}</h2>
+              <p className="text-xs text-slate-500">{t('settings.deleteAccountSummary')}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteAccount(true)}
+              className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50"
+            >
+              {t('settings.deleteAccount')}
+            </button>
+          </div>
+        )}
+
+        {confirmDeleteAccount && (
+          <ConfirmModal
+            title={t('settings.deleteAccount')}
+            message={t('settings.deleteAccountDetails')}
+            confirmLabel={t('settings.deleteAccountConfirm')}
+            onClose={closeDeleteAccount}
+            onConfirm={handleDeleteAccount}
+          >
+            <SecretInput
+              label={t('settings.currentPassword')}
+              required
+              autoComplete="current-password"
+              value={deletionPassword}
+              onChange={(event) => setDeletionPassword(event.target.value)}
+            />
+            {user.totp_enabled && (
+              <label className="block text-xs font-medium text-slate-700">
+                {t('settings.twoFactorOtpPlaceholder')}
+                <input
+                  type="text"
+                  required
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  value={deletionCode}
+                  onChange={(event) => setDeletionCode(event.target.value.replace(/\D/g, ''))}
+                  className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+            )}
+          </ConfirmModal>
         )}
 
         {tab === 'transfer' && (

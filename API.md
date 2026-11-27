@@ -6,13 +6,13 @@ The base path is `/api/v1`. The web UI, browser extension, and automation script
 
 ## 1. Authentication
 
-Generate a `lkt_...` token under **Settings → API Keys** in the web UI, then send it in the `Authorization` header:
+Generate a `lkt_...` token under **Settings → Account & API → API Keys & Automation** in the web UI, then send it in the `Authorization` header:
 
 ```http
 Authorization: Bearer lkt_YOUR_API_KEY
 ```
 
-Password changes, two-factor authentication, API key management, and admin endpoints require a signed-in web session. Bearer tokens receive `403` on those routes.
+Password changes, account deletion, two-factor authentication, API key management, and admin endpoints require a signed-in web session. Bearer tokens receive `403` on those routes.
 
 ---
 
@@ -20,7 +20,12 @@ Password changes, two-factor authentication, API key management, and admin endpo
 
 ### Health & Account
 - `GET /api/v1/health` — Server and SQLite health check (no auth required)
+- `GET /api/v1/auth/config` — Check registration availability, whether a setup token is required, and whether the optional `invite` query token is valid.
+- `POST /api/v1/auth/register` — Create an account with `email`, `name`, and `password`. Pass `language` as `ko` or `en` to save the account language. Omitted or unsupported values default to `en`. Supply `setup_token` or `invite_token` when required. Returns `201` and sets a session cookie.
+- `POST /api/v1/auth/login` — Sign in with `email` and `password`. When `requires_2fa` is `true`, repeat the request with `totp_code` to complete sign-in.
+- `POST /api/v1/auth/logout` — End the current web session and clear its session cookie.
 - `GET /api/v1/auth/me` — Current account and workspaces
+- `DELETE /api/v1/auth/account` — Permanently delete the signed-in account and its owned workspaces. Bookmarks added to other users' shared workspaces remain. Send `current_password` and, if two-factor authentication is enabled, `totp_code`. Returns `200` on success and revokes the account's sessions and API keys. Incorrect credentials return `401`. The last administrator receives `409` until another administrator is assigned.
 - `PATCH /api/v1/auth/settings` — Save user preferences (`language`, click action, view mode, clip format, search defaults, etc.)
 - `POST /api/v1/auth/2fa/setup` — Start authenticator enrollment. Supply `password` and, for an already enabled account, the current OTP as `code`. Submit the new OTP to `POST /api/v1/auth/2fa/enable`.
 - `GET /api/v1/api-keys`, `POST /api/v1/api-keys`, `DELETE /api/v1/api-keys/{keyID}` — Manage API keys

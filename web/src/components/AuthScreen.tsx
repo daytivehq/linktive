@@ -5,13 +5,14 @@ import { api, ApiError } from '../api/client';
 import { useI18n } from '../i18n';
 import type { AuthConfig, User, Workspace } from '../types/bookmark';
 import { LanguageSelect } from './LanguageSelect';
+import { SecretInput } from './SecretInput';
 
 interface AuthScreenProps {
   onSuccess: (user: User, workspaces: Workspace[]) => void;
 }
 
 export function AuthScreen({ onSuccess }: AuthScreenProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite') ?? '';
 
@@ -73,6 +74,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           email,
           name,
           password,
+          language: locale,
           invite_token: inviteToken || undefined,
           setup_token: authConfig?.setup_token_required ? setupToken : undefined,
         });
@@ -158,12 +160,13 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
 
         <form onSubmit={handleSubmit} className="space-y-3">
           {mode === 'register' && authConfig?.setup_token_required && (
-            <label className="block text-xs font-medium text-slate-700">
-              {t('auth.setupToken')}
-              <input type="password" required value={setupToken} autoComplete="off"
-                onChange={(e) => setSetupToken(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            </label>
+            <SecretInput
+              label={t('auth.setupToken')}
+              required
+              value={setupToken}
+              autoComplete="off"
+              onChange={(e) => setSetupToken(e.target.value)}
+            />
           )}
           {mode === 'register' && canRegister && (
             <div>
@@ -196,21 +199,17 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-700">
-              {t('auth.passwordMin')}
-            </label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              disabled={requires2FA}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:bg-slate-100"
-            />
-          </div>
+          <SecretInput
+            key={mode}
+            label={t('auth.passwordMin')}
+            required
+            minLength={6}
+            disabled={requires2FA}
+            value={password}
+            autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••"
+          />
 
           {requires2FA && mode === 'login' && (
             <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">

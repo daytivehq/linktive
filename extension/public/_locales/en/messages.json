@@ -1,0 +1,203 @@
+{
+  "locale": {
+    "message": "en"
+  },
+  "description": {
+    "message": "Save the current page and search bookmarks from the address bar with 'lk'."
+  },
+  "action_title": {
+    "message": "Save to linktive"
+  },
+  "command_description": {
+    "message": "Open the linktive save popup"
+  },
+  "options_title": {
+    "message": "linktive extension settings"
+  },
+  "popup_title": {
+    "message": "Save a bookmark to linktive"
+  },
+  "invalid_api_key": {
+    "message": "The API key is invalid. Check it in extension settings."
+  },
+  "connection_error": {
+    "message": "Could not connect to the server."
+  },
+  "error_details": {
+    "message": "$summary$ ($details$)",
+    "placeholders": {
+      "summary": {
+        "content": "$1"
+      },
+      "details": {
+        "content": "$2"
+      }
+    }
+  },
+  "duplicate_bookmark": {
+    "message": "This URL is already saved."
+  },
+  "save_error": {
+    "message": "Could not save the bookmark."
+  },
+  "select_workspace": {
+    "message": "Select a workspace"
+  },
+  "open_web_app": {
+    "message": "Open linktive"
+  },
+  "open_extension_settings": {
+    "message": "Extension settings"
+  },
+  "loading": {
+    "message": "Loading…"
+  },
+  "setup_required": {
+    "message": "Connect to your linktive server"
+  },
+  "setup_instructions": {
+    "message": "Enter your server URL and API key to save the current tab and search bookmarks with “lk” in the address bar."
+  },
+  "open_settings": {
+    "message": "Open settings"
+  },
+  "bookmark_saved": {
+    "message": "Bookmark saved"
+  },
+  "view_on_web": {
+    "message": "View in linktive"
+  },
+  "close": {
+    "message": "Close"
+  },
+  "view_existing": {
+    "message": "View existing bookmark"
+  },
+  "save_anyway": {
+    "message": "Save anyway"
+  },
+  "bookmark_title": {
+    "message": "Title"
+  },
+  "bookmark_title_placeholder": {
+    "message": "Leave blank to fetch the title automatically"
+  },
+  "collection": {
+    "message": "Collection"
+  },
+  "uncategorized": {
+    "message": "Uncategorized"
+  },
+  "favorite": {
+    "message": "Favorite"
+  },
+  "tags": {
+    "message": "Tags"
+  },
+  "remove_tag": {
+    "message": "Remove tag $tag$",
+    "placeholders": {
+      "tag": {
+        "content": "$1"
+      }
+    }
+  },
+  "tags_placeholder": {
+    "message": "Enter tags separated by commas"
+  },
+  "note": {
+    "message": "Note"
+  },
+  "note_placeholder": {
+    "message": "Add a short note"
+  },
+  "saving": {
+    "message": "Saving…"
+  },
+  "save_bookmark": {
+    "message": "Save bookmark"
+  },
+  "credentials_required": {
+    "message": "Enter both the server URL and API key."
+  },
+  "connection_saved": {
+    "message": "Connection verified and settings saved."
+  },
+  "workspace_saved": {
+    "message": "Default workspace saved."
+  },
+  "options_intro": {
+    "message": "Connect to your self-hosted linktive server with an API key."
+  },
+  "server_url": {
+    "message": "Server URL"
+  },
+  "server_url_placeholder": {
+    "message": "https://bookmark.example.com or http://localhost:18080"
+  },
+  "api_key": {
+    "message": "API key"
+  },
+  "hide_api_key": {
+    "message": "Hide API key"
+  },
+  "show_api_key": {
+    "message": "Show API key"
+  },
+  "api_key_instructions": {
+    "message": "Create an API key in the linktive web app under Settings → API Keys."
+  },
+  "default_workspace": {
+    "message": "Default workspace for search and quick save"
+  },
+  "personal_workspace": {
+    "message": "Personal"
+  },
+  "shared_workspace": {
+    "message": "Shared"
+  },
+  "connected_account": {
+    "message": "Connected account: $account$",
+    "placeholders": {
+      "account": {
+        "content": "$1"
+      }
+    }
+  },
+  "testing_connection": {
+    "message": "Testing connection…"
+  },
+  "test_and_save": {
+    "message": "Test connection and save"
+  },
+  "related_links": {
+    "message": "linktive links"
+  },
+  "chrome_web_store": {
+    "message": "Chrome Web Store"
+  },
+  "quick_tips": {
+    "message": "Quick tips"
+  },
+  "omnibox_tip_title": {
+    "message": "Search from the address bar"
+  },
+  "omnibox_tip": {
+    "message": "Type “lk” in the address bar, press Space or Tab, then enter a search term to find your bookmarks."
+  },
+  "shortcut_tip_title": {
+    "message": "Save the current page with a shortcut"
+  },
+  "shortcut_tip": {
+    "message": "Press Alt+Shift+L (Cmd+Shift+L on macOS) to open the save popup."
+  },
+  "omnibox_default": {
+    "message": "Search linktive for <match>%s</match> (Enter opens the web search page)"
+  },
+  "omnibox_setup_required": {
+    "message": "Set the linktive server URL and API key first. Select this suggestion to open settings."
+  },
+  "omnibox_search_error": {
+    "message": "Search failed. Check your linktive connection settings."
+  }
+}

@@ -11,7 +11,8 @@ import {
   Sparkles,
 } from 'lucide-react'
 import './index.css'
-import { Workspace, fetchMe } from './lib/api'
+import { Workspace, fetchMe, requestErrorMessage } from './lib/api'
+import { localizePage, t } from './lib/i18n'
 import { getSettings, normalizeServerUrl, saveSettings } from './lib/storage'
 
 function OptionsApp() {
@@ -48,7 +49,7 @@ function OptionsApp() {
     const cleanKey = rawKey.trim()
     if (!cleanUrl || !cleanKey) {
       setStatus('error')
-      setMessage('서버 URL과 API 키를 모두 입력하세요.')
+      setMessage(t('credentials_required'))
       return
     }
     setTesting(true)
@@ -73,11 +74,11 @@ function OptionsApp() {
         })
         setServerUrl(cleanUrl)
         setStatus('ok')
-        setMessage('연결 확인 및 설정 저장이 완료되었습니다.')
+        setMessage(t('connection_saved'))
       }
     } catch (err) {
       setStatus('error')
-      setMessage(err instanceof Error ? err.message : '서버에 연결할 수 없습니다.')
+      setMessage(requestErrorMessage(err, 'connection_error'))
     } finally {
       setTesting(false)
     }
@@ -91,7 +92,7 @@ function OptionsApp() {
       defaultWorkspaceId: nextWsId,
     })
     setStatus('ok')
-    setMessage('기본 소속 설정이 저장되었습니다.')
+    setMessage(t('workspace_saved'))
   }
 
   return (
@@ -102,9 +103,9 @@ function OptionsApp() {
             <Bookmark className="h-5 w-5" />
           </span>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">linktive 확장 프로그램 설정</h1>
+            <h1 className="text-xl font-bold tracking-tight">{t('options_title')}</h1>
             <p className="text-xs text-slate-500">
-              자체 호스팅 linktive 서버와 API 키를 연결합니다.
+              {t('options_intro')}
             </p>
           </div>
         </div>
@@ -118,21 +119,21 @@ function OptionsApp() {
         >
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              서버 주소 (URL)
+              {t('server_url')}
             </label>
             <input
               type="text"
               required
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
-              placeholder="https://bookmark.example.com 또는 http://localhost:18080"
+              placeholder={t('server_url_placeholder')}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none"
             />
           </div>
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              API 키
+              {t('api_key')}
             </label>
             <div className="relative">
               <input
@@ -147,20 +148,20 @@ function OptionsApp() {
                 type="button"
                 onClick={() => setShowKey((v) => !v)}
                 className="absolute inset-y-0 right-2 flex items-center px-1 text-slate-400 hover:text-slate-600"
-                title={showKey ? '숨기기' : '표시'}
+                title={t(showKey ? 'hide_api_key' : 'show_api_key')}
               >
                 {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
-              linktive 웹 앱의 <strong>설정 → API 키</strong> 메뉴에서 발급한 키를 입력하세요.
+              {t('api_key_instructions')}
             </p>
           </div>
 
           {workspaces.length > 0 && (
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                기본 소속 (검색 및 빠른 저장 대상)
+                {t('default_workspace')}
               </label>
               <select
                 value={defaultWorkspaceId}
@@ -169,12 +170,12 @@ function OptionsApp() {
               >
                 {workspaces.map((w) => (
                   <option key={w.id} value={w.id}>
-                    {w.name} ({w.type === 'personal' ? '개인' : '공유 소속'})
+                    {w.name} ({t(w.type === 'personal' ? 'personal_workspace' : 'shared_workspace')})
                   </option>
                 ))}
               </select>
               {userLabel && (
-                <p className="mt-1 text-xs text-slate-500">연결된 계정: {userLabel}</p>
+                <p className="mt-1 text-xs text-slate-500">{t('connected_account', userLabel)}</p>
               )}
             </div>
           )}
@@ -198,13 +199,13 @@ function OptionsApp() {
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
           >
             {testing && <Loader2 className="h-4 w-4 animate-spin" />}
-            {testing ? '연결 확인 중...' : '연결 테스트 및 저장'}
+            {t(testing ? 'testing_connection' : 'test_and_save')}
           </button>
         </form>
 
-        <nav aria-label="linktive 관련 링크" className="flex flex-wrap gap-2 text-sm">
+        <nav aria-label={t('related_links')} className="flex flex-wrap gap-2 text-sm">
           {[
-            ['Chrome 웹 스토어', 'https://chromewebstore.google.com/detail/linktive/opalenmkjhflejpemlkbliiadchgjhje'],
+            [t('chrome_web_store'), 'https://chromewebstore.google.com/detail/linktive/opalenmkjhflejpemlkbliiadchgjhje'],
             ['GitHub', 'https://github.com/daytivehq/linktive'],
           ].map(([label, href]) => (
             <a key={href} href={href} target="_blank" rel="noreferrer"
@@ -218,28 +219,22 @@ function OptionsApp() {
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
           <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
             <Sparkles className="h-4 w-4 text-sky-600" />
-            빠른 사용 팁
+            {t('quick_tips')}
           </h2>
           <div className="space-y-2.5 text-xs leading-relaxed text-slate-600">
             <div className="flex items-start gap-2.5 rounded-lg bg-slate-50 p-3">
               <Search className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
               <div>
-                <p className="font-semibold text-slate-800">주소창 즉시 검색 (Omnibox)</p>
+                <p className="font-semibold text-slate-800">{t('omnibox_tip_title')}</p>
                 <p className="mt-0.5">
-                  브라우저 주소창에 <code className="rounded bg-white px-1.5 py-0.5 font-mono font-semibold text-sky-700">lk</code> 입력 후
-                  <kbd className="mx-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px]">Space</kbd>
-                  또는
-                  <kbd className="mx-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px]">Tab</kbd>
-                  을 누르고 검색어를 입력하면 저장된 북마크가 바로 표시됩니다.
+                  {t('omnibox_tip')}
                 </p>
               </div>
             </div>
             <div className="rounded-lg bg-slate-50 p-3">
-              <p className="font-semibold text-slate-800">단축키로 현재 페이지 저장</p>
+              <p className="font-semibold text-slate-800">{t('shortcut_tip_title')}</p>
               <p className="mt-0.5">
-                <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px]">Alt+Shift+L</kbd>{' '}
-                (macOS: <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px]">Cmd+Shift+L</kbd>)
-                단축키로 어디서든 저장 팝업을 열 수 있습니다.
+                {t('shortcut_tip')}
               </p>
             </div>
           </div>
@@ -248,6 +243,8 @@ function OptionsApp() {
     </div>
   )
 }
+
+localizePage('options_title')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

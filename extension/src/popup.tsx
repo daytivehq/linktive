@@ -21,7 +21,9 @@ import {
   fetchCollections,
   fetchMe,
   fetchTags,
+  requestErrorMessage,
 } from './lib/api'
+import { localizePage, t } from './lib/i18n'
 import { getSettings } from './lib/storage'
 
 interface FlatCollection {
@@ -107,9 +109,9 @@ function PopupApp() {
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           setNeedsConfig(true)
-          setError('API 키가 유효하지 않습니다. 설정에서 다시 확인해주세요.')
+          setError(t('invalid_api_key'))
         } else {
-          setError(err instanceof Error ? err.message : '서버에 연결할 수 없습니다.')
+          setError(requestErrorMessage(err, 'connection_error'))
         }
       } finally {
         setLoading(false)
@@ -195,10 +197,10 @@ function PopupApp() {
       if (err instanceof DuplicateBookmarkError) {
         setDuplicate(err.existing ?? null)
         if (!err.existing) {
-          setError('이미 동일한 URL이 저장되어 있습니다.')
+          setError(t('duplicate_bookmark'))
         }
       } else {
-        setError(err instanceof Error ? err.message : '북마크 저장에 실패했습니다.')
+        setError(requestErrorMessage(err, 'save_error'))
       }
     } finally {
       setSaving(false)
@@ -225,7 +227,7 @@ function PopupApp() {
               value={workspaceId}
               onChange={(e) => setWorkspaceId(e.target.value)}
               className="max-w-[130px] truncate rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700"
-              aria-label="소속 선택"
+              aria-label={t('select_workspace')}
             >
               {workspaces.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -238,7 +240,7 @@ function PopupApp() {
             <button
               type="button"
               onClick={() => openWebApp('/')}
-              title="linktive 웹 열기"
+              title={t('open_web_app')}
               className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
             >
               <ExternalLink className="h-4 w-4" />
@@ -247,7 +249,7 @@ function PopupApp() {
           <button
             type="button"
             onClick={() => void chrome.runtime.openOptionsPage()}
-            title="확장 프로그램 설정"
+            title={t('open_extension_settings')}
             className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
           >
             <Settings className="h-4 w-4" />
@@ -259,15 +261,13 @@ function PopupApp() {
         {loading ? (
           <div className="flex items-center justify-center py-10 text-sm text-slate-500">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            불러오는 중...
+            {t('loading')}
           </div>
         ) : needsConfig ? (
           <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 text-center">
-            <p className="text-sm font-semibold text-slate-800">linktive 연결 설정이 필요합니다</p>
+            <p className="text-sm font-semibold text-slate-800">{t('setup_required')}</p>
             <p className="text-xs leading-relaxed text-slate-500">
-              서버 주소와 API 키를 등록하면 현재 탭을 바로 저장하고 주소창에서{' '}
-              <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-sky-700">lk</code>로
-              북마크를 즉시 검색할 수 있습니다.
+              {t('setup_instructions')}
             </p>
             {error && <p className="text-xs text-rose-600">{error}</p>}
             <button
@@ -275,14 +275,14 @@ function PopupApp() {
               onClick={() => void chrome.runtime.openOptionsPage()}
               className="w-full rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700"
             >
-              설정 열기
+              {t('open_settings')}
             </button>
           </div>
         ) : savedBookmark ? (
           <div className="space-y-3 rounded-xl border border-emerald-200 bg-white p-4 text-center">
             <CheckCircle2 className="mx-auto h-9 w-9 text-emerald-500" />
             <div>
-              <p className="text-sm font-semibold text-slate-900">북마크가 저장되었습니다</p>
+              <p className="text-sm font-semibold text-slate-900">{t('bookmark_saved')}</p>
               <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                 {savedBookmark.title || savedBookmark.url}
               </p>
@@ -290,23 +290,23 @@ function PopupApp() {
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                onClick={() =>
-                  openWebApp(
-                    savedBookmark.collection_id
-                      ? `/collections/${savedBookmark.collection_id}`
-                      : '/',
-                  )
-                }
+                onClick={() => {
+                  const params = new URLSearchParams({
+                    workspace: savedBookmark.workspace_id,
+                    bookmark: savedBookmark.id,
+                  })
+                  openWebApp(`/bookmarks?${params}`)
+                }}
                 className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
-                웹에서 확인
+                {t('view_on_web')}
               </button>
               <button
                 type="button"
                 onClick={() => window.close()}
                 className="flex-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
               >
-                닫기
+                {t('close')}
               </button>
             </div>
           </div>
@@ -329,7 +329,7 @@ function PopupApp() {
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold">이미 저장된 URL입니다</p>
+                    <p className="font-semibold">{t('duplicate_bookmark')}</p>
                     <p className="mt-0.5 truncate text-amber-700">
                       {duplicate.title || duplicate.url}
                     </p>
@@ -343,7 +343,7 @@ function PopupApp() {
                     }
                     className="flex-1 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 font-medium text-amber-900 hover:bg-amber-100"
                   >
-                    기존 항목 보기
+                    {t('view_existing')}
                   </button>
                   <button
                     type="button"
@@ -351,7 +351,7 @@ function PopupApp() {
                     onClick={() => void handleSave(true)}
                     className="flex-1 rounded-md bg-amber-600 px-2.5 py-1.5 font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
                   >
-                    그래도 추가
+                    {t('save_anyway')}
                   </button>
                 </div>
               </div>
@@ -370,25 +370,25 @@ function PopupApp() {
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">제목</label>
+              <label className="mb-1 block text-xs font-medium text-slate-600">{t('bookmark_title')}</label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="비워두면 서버에서 자동 수집"
+                placeholder={t('bookmark_title_placeholder')}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:border-sky-500 focus:outline-none"
               />
             </div>
 
             <div className="grid grid-cols-[1fr_auto] items-end gap-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">컬렉션</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">{t('collection')}</label>
                 <select
                   value={collectionId}
                   onChange={(e) => setCollectionId(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-900 focus:border-sky-500 focus:outline-none"
                 >
-                  <option value="">미분류</option>
+                  <option value="">{t('uncategorized')}</option>
                   {flatCollections.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.label}
@@ -404,15 +404,15 @@ function PopupApp() {
                     ? 'border-amber-300 bg-amber-50 text-amber-700'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
-                title="즐겨찾기"
+                aria-pressed={isFavorite}
               >
                 <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-amber-400 text-amber-500' : ''}`} />
-                즐겨찾기
+                {t('favorite')}
               </button>
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">태그</label>
+              <label className="mb-1 block text-xs font-medium text-slate-600">{t('tags')}</label>
               {tags.length > 0 && (
                 <div className="mb-1.5 flex flex-wrap gap-1">
                   {tags.map((tag) => (
@@ -424,6 +424,7 @@ function PopupApp() {
                       <button
                         type="button"
                         onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                        aria-label={t('remove_tag', tag)}
                         className="text-sky-500 hover:text-sky-800"
                       >
                         <X className="h-3 w-3" />
@@ -443,7 +444,7 @@ function PopupApp() {
                   }
                 }}
                 onBlur={commitTagInput}
-                placeholder="태그 입력 후 Enter (쉼표로 구분)"
+                placeholder={t('tags_placeholder')}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:border-sky-500 focus:outline-none"
               />
               {suggestedTags.length > 0 && (
@@ -466,12 +467,12 @@ function PopupApp() {
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">메모</label>
+              <label className="mb-1 block text-xs font-medium text-slate-600">{t('note')}</label>
               <textarea
                 rows={2}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="간단한 메모를 남기세요"
+                placeholder={t('note_placeholder')}
                 className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:border-sky-500 focus:outline-none"
               />
             </div>
@@ -482,7 +483,7 @@ function PopupApp() {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
             >
               {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {saving ? '저장 중...' : '북마크 저장'}
+              {t(saving ? 'saving' : 'save_bookmark')}
             </button>
           </form>
         )}
@@ -490,6 +491,8 @@ function PopupApp() {
     </div>
   )
 }
+
+localizePage('popup_title')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

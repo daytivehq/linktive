@@ -73,7 +73,14 @@ export const api = {
 
   me: () => request<{ user: User; workspaces: Workspace[] }>('/api/v1/auth/me'),
 
-  register: (payload: { email: string; name: string; password: string; invite_token?: string; setup_token?: string }) =>
+  register: (payload: {
+    email: string;
+    name: string;
+    password: string;
+    language?: UserSettings['language'];
+    invite_token?: string;
+    setup_token?: string;
+  }) =>
     request<{ user: User; workspaces: Workspace[] }>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -89,6 +96,12 @@ export const api = {
     ),
 
   logout: () => request<{ status: string }>('/api/v1/auth/logout', { method: 'POST' }),
+
+  deleteAccount: (currentPassword: string, totpCode: string) =>
+    request<{ status: string }>('/api/v1/auth/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ current_password: currentPassword, totp_code: totpCode }),
+    }),
 
   updateSettings: (settings: UserSettings) =>
     request<{ user: User }>('/api/v1/auth/settings', {
@@ -276,6 +289,9 @@ export const api = {
       `/api/v1/workspaces/${wsID}/bookmarks${query ? `?${query}` : ''}`,
     );
   },
+
+  getBookmark: (wsID: string, bmID: string, signal?: AbortSignal) =>
+    request<Bookmark>(`/api/v1/workspaces/${encodeURIComponent(wsID)}/bookmarks/${encodeURIComponent(bmID)}`, { signal }),
 
   createBookmark: (
     wsID: string,

@@ -1,4 +1,5 @@
 import { fetchMe, searchBookmarks } from './lib/api'
+import { t } from './lib/i18n'
 import { getSettings, saveSettings } from './lib/storage'
 
 const OPEN_OPTIONS_SENTINEL = '__linktive_open_options__'
@@ -47,7 +48,7 @@ let activeController: AbortController | undefined
 let requestSeq = 0
 
 chrome.omnibox.setDefaultSuggestion({
-  description: 'linktive에서 <match>%s</match> 검색 (Enter: 웹 검색 페이지 열기)',
+  description: t('omnibox_default'),
 })
 
 chrome.omnibox.onInputChanged.addListener((text, suggest) => {
@@ -62,7 +63,7 @@ chrome.omnibox.onInputChanged.addListener((text, suggest) => {
         suggest([
           {
             content: OPEN_OPTIONS_SENTINEL,
-            description: '<dim>linktive 서버 URL과 API 키를 먼저 설정하세요 (클릭하여 설정 열기)</dim>',
+            description: `<dim>${escapeXml(t('omnibox_setup_required'))}</dim>`,
           },
         ])
         return
@@ -107,7 +108,7 @@ chrome.omnibox.onInputChanged.addListener((text, suggest) => {
       suggest([
         {
           content: OPEN_OPTIONS_SENTINEL,
-          description: '<dim>검색 오류: linktive 연결 설정을 확인하세요</dim>',
+          description: `<dim>${escapeXml(t('omnibox_search_error'))}</dim>`,
         },
       ])
     }
