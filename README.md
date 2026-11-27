@@ -35,12 +35,16 @@ services:
 
 ### 2. Start the server
 
+**The first registered account automatically becomes the system administrator.**
+
+- If you create the administrator account before allowing public access, you can leave `LINKTIVE_SETUP_TOKEN` unset.
+- If you allow public access before the first registration, including from the moment the server starts, someone else could register first and gain administrator access. Set the `LINKTIVE_SETUP_TOKEN` container environment variable to a long random value before allowing public access.
+
 ```bash
 docker compose up -d
 ```
 
-Open `http://localhost:18080` in your browser.  
-**The first registered account automatically becomes the system administrator.** For a new public installation, set a long random `LINKTIVE_SETUP_TOKEN` in the container environment before the first registration.
+Open `http://localhost:18080` in your browser.
 
 > To build from source, clone the repository and run `docker compose up --build -d`.
 
