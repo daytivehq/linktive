@@ -1,0 +1,8 @@
+# Local Android SDK and machine-specific settings
+/.toolchain/
+/local.properties
+
+# Gradle and Kotlin caches and module build output
+/.gradle/
+/.kotlin/
+build/

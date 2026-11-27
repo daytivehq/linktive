@@ -56,6 +56,7 @@ Authorization: Bearer lkt_YOUR_API_KEY
   - `{"url": "https://example.com", "collection_id": null, "tags": ["개발"], "allow_duplicate": false, "clip_now": false}`
   - `title`·`description`을 비워두면 대상 페이지에서 제목·설명·파비콘을 자동 수집합니다.
   - 중복 URL은 `409 Conflict`를 반환합니다. 열람 권한이 있는 경우에만 `existing`에 기존 북마크를 포함합니다.
+  - 오프라인 클라이언트는 `Idempotency-Key` 헤더에 UUID를 보낼 수 있습니다. 같은 사용자가 같은 요청을 다시 보내면 기존 북마크와 `200`을 반환합니다. 같은 키로 다른 요청을 보내거나 기존 북마크가 이동·삭제된 뒤 재시도하면 `409`를 반환합니다.
 - `GET /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 단일 북마크 조회
 - `PATCH /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — 북마크 수정 및 소속 이동(`target_workspace_id`)
   - `expected_updated_at`에 마지막 조회의 `updated_at`을 전달하면 편집 충돌 시 서버가 `409`와 최신 북마크를 반환합니다.

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/linktive/linktive/internal/domain"
 	"github.com/linktive/linktive/internal/search"
 	"github.com/linktive/linktive/internal/store"
@@ -87,6 +89,7 @@ type createBookmarkRequest struct {
 	AllowDuplicate bool     `json:"allow_duplicate"`
 	ClipNow        *bool    `json:"clip_now"`
 	ClipFormat     string   `json:"clip_format"`
+	requestID      string
 }
 
 func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +101,14 @@ func (a *apiHandler) handleCreateBookmark(w http.ResponseWriter, r *http.Request
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	if key := strings.TrimSpace(r.Header.Get("Idempotency-Key")); key != "" {
+		id, err := uuid.Parse(key)
+		if err != nil || id == uuid.Nil {
+			writeError(w, http.StatusBadRequest, "Idempotency-Key must be a nonzero UUID")
+			return
+		}
+		req.requestID = id.String()
 	}
 	a.createBookmarkInWorkspace(w, r, wsID, req)
 }
@@ -138,6 +149,15 @@ func (a *apiHandler) createBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		title = hostDomain
 	}
 
+	requestHash := ""
+	if req.requestID != "" {
+		payload, err := json.Marshal(req)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to hash bookmark request")
+			return
+		}
+		requestHash = hashToken(string(payload))
+	}
 	bm, err := a.store.CreateBookmark(r.Context(), store.CreateBookmarkInput{
 		WorkspaceID:    wsID,
 		CollectionID:   req.CollectionID,
@@ -152,7 +172,17 @@ func (a *apiHandler) createBookmarkInWorkspace(w http.ResponseWriter, r *http.Re
 		IsFavorite:     req.IsFavorite,
 		Tags:           req.Tags,
 		AllowDuplicate: req.AllowDuplicate,
+		RequestID:      req.requestID,
+		RequestHash:    requestHash,
 	})
+	if errors.Is(err, store.ErrBookmarkReplayed) {
+		writeJSON(w, http.StatusOK, bm)
+		return
+	}
+	if errors.Is(err, store.ErrBookmarkRequestConflict) || errors.Is(err, store.ErrBookmarkRequestGone) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	var dupErr *store.DuplicateURLError
 	if errors.As(err, &dupErr) {
 		if role, err := a.store.GetWorkspaceRole(r.Context(), wsID, user.ID); err != nil || role.RoleLevel() < domain.RoleViewer.RoleLevel() {

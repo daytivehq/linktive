@@ -9,14 +9,17 @@ import (
 )
 
 var (
-	ErrNotFound             = errors.New("not found")
-	ErrBookmarkChanged      = errors.New("bookmark changed")
-	ErrAlreadyExists        = errors.New("already exists")
-	ErrDuplicateURL         = errors.New("duplicate bookmark url")
-	ErrInvalidParent        = errors.New("invalid parent collection")
-	ErrPermissionDenied     = errors.New("permission denied")
-	ErrRegistrationDisabled = errors.New("registration is disabled")
-	ErrInvalidInvite        = errors.New("invalid or expired invite token")
+	ErrNotFound                = errors.New("not found")
+	ErrBookmarkChanged         = errors.New("bookmark changed")
+	ErrAlreadyExists           = errors.New("already exists")
+	ErrDuplicateURL            = errors.New("duplicate bookmark url")
+	ErrBookmarkReplayed        = errors.New("bookmark request already completed")
+	ErrBookmarkRequestConflict = errors.New("bookmark request key was used with different input")
+	ErrBookmarkRequestGone     = errors.New("bookmark from completed request is no longer in the workspace")
+	ErrInvalidParent           = errors.New("invalid parent collection")
+	ErrPermissionDenied        = errors.New("permission denied")
+	ErrRegistrationDisabled    = errors.New("registration is disabled")
+	ErrInvalidInvite           = errors.New("invalid or expired invite token")
 )
 
 // DuplicateURLError provides the existing bookmark when a duplicate URL is detected.
@@ -87,6 +90,8 @@ type CreateBookmarkInput struct {
 	IsFavorite     bool
 	Tags           []string
 	AllowDuplicate bool
+	RequestID      string
+	RequestHash    string
 }
 
 // UpdateBookmarkInput contains mutable fields for a bookmark.

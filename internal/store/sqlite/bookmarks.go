@@ -17,18 +17,56 @@ import (
 // CreateBookmark stores a bookmark, checks duplicates unless bypassed, syncs tags, and updates FTS5.
 func (s *Store) CreateBookmark(ctx context.Context, input store.CreateBookmarkInput) (domain.Bookmark, error) {
 	colID := normalizeOptionalID(input.CollectionID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Bookmark{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if input.RequestID != "" {
+		var workspaceID, bookmarkID, requestHash string
+		err := tx.QueryRowContext(ctx, `
+			SELECT workspace_id, bookmark_id, request_hash FROM bookmark_create_requests
+			WHERE user_id = ? AND request_id = ?
+		`, input.CreatedBy, input.RequestID).Scan(&workspaceID, &bookmarkID, &requestHash)
+		if err == nil {
+			if workspaceID != input.WorkspaceID || requestHash != input.RequestHash {
+				return domain.Bookmark{}, store.ErrBookmarkRequestConflict
+			}
+			_ = tx.Rollback() // Release the single SQLite connection before loading the bookmark.
+			bookmark, err := s.GetBookmark(ctx, workspaceID, bookmarkID)
+			if errors.Is(err, store.ErrNotFound) {
+				return domain.Bookmark{}, store.ErrBookmarkRequestGone
+			}
+			if err != nil {
+				return domain.Bookmark{}, err
+			}
+			return bookmark, store.ErrBookmarkReplayed
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return domain.Bookmark{}, err
+		}
+	}
 	if colID != nil {
-		if err := s.ensureCollectionExists(ctx, input.WorkspaceID, *colID); err != nil {
+		var exists bool
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+			SELECT 1 FROM collections WHERE id = ? AND workspace_id = ?
+		)`, *colID, input.WorkspaceID).Scan(&exists)
+		if err != nil {
+			return domain.Bookmark{}, err
+		}
+		if !exists {
 			return domain.Bookmark{}, store.ErrInvalidParent
 		}
 	}
 
 	if !input.AllowDuplicate {
 		var dupID string
-		err := s.db.QueryRowContext(ctx, `
+		err := tx.QueryRowContext(ctx, `
 			SELECT id FROM bookmarks WHERE workspace_id = ? AND normalized_url = ? LIMIT 1
 		`, input.WorkspaceID, input.NormalizedURL).Scan(&dupID)
 		if err == nil {
+			_ = tx.Rollback()
 			existing, getErr := s.GetBookmark(ctx, input.WorkspaceID, dupID)
 			if getErr != nil {
 				return domain.Bookmark{}, store.ErrDuplicateURL
@@ -68,12 +106,6 @@ func (s *Store) CreateBookmark(ctx context.Context, input store.CreateBookmarkIn
 	compactText := search.CompactText(bm.Title, tagsText, bm.Note, bm.Description, bm.Domain, bm.URL)
 	chosungText := search.ExtractChosung(bm.Title, tagsText, bm.Note, bm.Description)
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return domain.Bookmark{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO bookmarks (
 			id, workspace_id, collection_id, created_by, url, normalized_url, domain,
@@ -91,6 +123,14 @@ func (s *Store) CreateBookmark(ctx context.Context, input store.CreateBookmarkIn
 	}
 	if err := upsertBookmarkFTSTx(ctx, tx, bm, tagsText, compactText); err != nil {
 		return domain.Bookmark{}, err
+	}
+	if input.RequestID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO bookmark_create_requests (user_id, request_id, request_hash, workspace_id, bookmark_id)
+			VALUES (?, ?, ?, ?, ?)
+		`, input.CreatedBy, input.RequestID, input.RequestHash, bm.WorkspaceID, bm.ID); err != nil {
+			return domain.Bookmark{}, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

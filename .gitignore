@@ -1,5 +1,6 @@
 # Keep local review materials and artifacts private.
 /docs/*
+!/docs/NEXT_IMPROVEMENTS.md
 !/docs/chrome-web-store-guide.md
 
 # Binaries, test, and coverage outputs
@@ -34,6 +35,16 @@ node_modules/
 # Browser extension
 /extension/dist/
 /extension/*.zip
+
+# Android packages and signing credentials
+*.apk
+*.apks
+*.aab
+*.jks
+*.keystore
+*.p12
+keystore.properties
+signing.properties
 
 # OS & Editors
 .DS_Store

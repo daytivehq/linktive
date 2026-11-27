@@ -56,6 +56,7 @@ Password changes, account deletion, two-factor authentication, API key managemen
   - `{"url": "https://example.com", "collection_id": null, "tags": ["dev"], "allow_duplicate": false, "clip_now": false}`
   - Leave `title` / `description` empty to auto-fetch metadata and favicon.
   - Duplicate normalized URLs return `409 Conflict`. The response includes `existing` only when the caller can view that bookmark.
+  - Offline clients can send a UUID in `Idempotency-Key`. Retrying the same request as the same user returns `200` with the original bookmark. Reusing the key with different input, or retrying after the bookmark was moved or deleted, returns `409`.
 - `GET /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Get bookmark
 - `PATCH /api/v1/workspaces/{wsID}/bookmarks/{bmID}` — Update bookmark or move to `target_workspace_id`
   - Pass the last observed `updated_at` as `expected_updated_at` to receive `409` and the latest bookmark on an editing conflict.

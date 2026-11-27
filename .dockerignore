@@ -11,3 +11,4 @@ extension/dist
 .idea
 .DS_Store
 *.log
+android
